@@ -1,0 +1,486 @@
+
+        :root {
+            --primary: #1a1a1a;
+            --secondary: #4a4a4a;
+            --light: #f8fafc;
+            --white: #ffffff;
+            --border: #e2e8f0;
+            --hover: #f1f5f9;
+            --success: #059669;
+            --text-light: #64748b;
+            --error: #dc2626;
+            --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1);
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            color: var(--primary);
+            background: linear-gradient(135deg, var(--light) 0%, var(--white) 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            overflow-x: hidden;
+        }
+        
+        /* Enhanced fade-in animation for container - matching login/register pages */
+        .verification-container {
+            background: var(--white);
+            border-radius: 20px;
+            box-shadow: var(--shadow-xl);
+            border: 1px solid var(--border);
+            overflow: hidden;
+            width: 100%;
+            max-width: 500px;
+            margin: 1rem;
+            position: relative;
+            opacity: 0;
+            animation: fadeIn 0.8s ease-out forwards;
+        }
+        
+        @keyframes fadeIn {
+            from { 
+                opacity: 0; 
+                transform: translateY(20px); 
+            }
+            to { 
+                opacity: 1; 
+                transform: translateY(0); 
+            }
+        }
+        
+        .back-home {
+            position: absolute;
+            top: 2rem;
+            left: 2rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            background: var(--white);
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 500;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            transition: all 0.2s ease;
+            z-index: 10;
+        }
+        
+        .back-home:hover {
+            background: var(--primary);
+            color: var(--white);
+            transform: translateY(-1px);
+        }
+        
+        .verification-header {
+            padding: 1.5rem 2rem 1rem;
+            text-align: center;
+        }
+        
+        .logo-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 0 0.75rem 0;
+            padding: 0;
+        }
+        
+        .logo-icon {
+            width: 70px;
+            height: 45px;
+            padding: 0;
+            overflow: hidden;
+            background: var(--white);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+        }
+        
+        .logo-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .logo-icon.no-border {
+            border: none;
+        }
+        
+        .brand-text {
+            text-align: center;
+            padding: 0;
+            margin: 0 0 0.75rem 0;
+        }
+        
+        .brand-title {
+            font-size: 2.2rem;
+            font-weight: 800;
+            margin: 0;
+            color: #ffcc00;
+            font-family: 'Poppins', sans-serif;
+        }
+        
+        .title-style {
+            font-size: 2.2rem;
+            font-weight: 800;
+            margin: 0;
+            color: #0080ff;
+            font-family: 'Poppins', sans-serif;
+        }
+        
+        .brand-subtitle {
+            font-size: 0.85rem;
+            color: var(--text-light);
+            margin: 0;
+            padding: 0;
+        }
+        
+        .verification-header h4 {
+            font-size: 1.75rem;
+            margin: 0.5rem 0 0.5rem;
+            color: var(--primary);
+        }
+        
+        .verification-header p {
+            color: var(--text-light);
+            margin: 0;
+            font-size: 0.9rem;
+        }
+        
+        .verification-body {
+            padding: 1rem 2rem 2rem;
+        }
+        
+        /* Animated verification icon */
+        .verification-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        .verification-icon.success {
+            color: var(--success);
+            animation: bounceIn 0.8s ease-out;
+        }
+        
+        .verification-icon.pending {
+            color: var(--primary);
+        }
+        
+        @keyframes pulse {
+            0%, 100% { 
+                transform: scale(1); 
+                opacity: 1; 
+            }
+            50% { 
+                transform: scale(1.05); 
+                opacity: 0.8; 
+            }
+        }
+        
+        @keyframes bounceIn {
+            0% { 
+                transform: scale(0); 
+                opacity: 0; 
+            }
+            50% { 
+                transform: scale(1.2); 
+            }
+            100% { 
+                transform: scale(1); 
+                opacity: 1; 
+            }
+        }
+        
+        .mb-3 {
+            margin-bottom: 1rem;
+        }
+        
+        .mb-4 {
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: var(--primary);
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+        
+        /* Enhanced form controls with animations - matching login/register pages */
+        .form-control {
+            height: 50px;
+            padding: 0.7rem 1rem;
+            border: 1.5px solid var(--border);
+            border-radius: 12px;
+            background: var(--white);
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            width: 100%;
+            text-align: center;
+            font-weight: 600;
+            letter-spacing: 2px;
+        }
+        
+        .form-control:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(26, 26, 26, 0.1);
+            outline: none;
+            transform: translateY(-2px);
+        }
+        
+        /* Enhanced button animations - matching login/register pages */
+        .btn-primary {
+            background: var(--primary);
+            color: var(--white);
+            border: none;
+            padding: 0.7rem 1.5rem;
+            font-weight: 500;
+            border-radius: 12px;
+            transition: all 0.3s ease;
+            width: 100%;
+            font-size: 1rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            height: 50px;
+        }
+        
+        .btn-primary:hover {
+            background: var(--secondary);
+            transform: translateY(-2px);
+        }
+        
+        .btn-success {
+            background: var(--success);
+            color: var(--white);
+            border: none;
+            padding: 0.7rem 1.5rem;
+            font-weight: 500;
+            border-radius: 12px;
+            transition: all 0.3s ease;
+            font-size: 1rem;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            height: 50px;
+        }
+        
+        .btn-success:hover {
+            background: #047857;
+            transform: translateY(-2px);
+        }
+        
+        /* Enhanced alert animations - matching login/register pages */
+        .alert {
+            padding: 0.75rem 1rem;
+            margin-bottom: 1rem;
+            border-radius: 12px;
+            font-weight: 500;
+            font-size: 0.85rem;
+            border: none;
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+        
+        .alert-danger {
+            background: #fef2f2;
+            color: var(--error);
+            border-left: 3px solid var(--error);
+        }
+        
+        .alert-success {
+            background: #f0fdf4;
+            color: var(--success);
+            border-left: 3px solid var(--success);
+        }
+        
+        .me-2 {
+            margin-right: 0.5rem;
+        }
+        
+        /* Enhanced spinner animation - matching login/register pages */
+        .spinner {
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .text-muted {
+            color: var(--text-light) !important;
+            font-size: 0.85rem;
+        }
+        
+        .back-link {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .back-link:hover {
+            color: var(--secondary);
+            transform: translateY(-1px);
+        }
+        
+        /* Enhanced fade-out animation - matching login/register pages */
+        .fade-out {
+            opacity: 0;
+            transform: translateY(-10px);
+            transition: all 0.3s ease;
+        }
+        
+        .success-content {
+            animation: slideInUp 0.8s ease-out;
+        }
+        
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        /* Code input styling */
+        .code-input {
+            font-family: 'Courier New', monospace;
+            letter-spacing: 3px;
+            text-align: center;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        
+        /* Responsive design - matching login/register pages */
+        @media (max-width: 768px) {
+            .back-home {
+                top: 1rem;
+                left: 1rem;
+                padding: 0.625rem 1rem;
+                font-size: 0.875rem;
+            }
+            
+            .verification-container {
+                margin: 1rem;
+                max-width: calc(100vw - 2rem);
+            }
+            
+            .verification-header {
+                padding: 2rem 1.5rem 1rem;
+            }
+            
+            .verification-body {
+                padding: 1rem 1.5rem 2rem;
+            }
+            
+            .brand-title, .title-style {
+                font-size: 1.8rem;
+            }
+            
+            .verification-header h4 {
+                font-size: 1.5rem;
+            }
+            
+            .verification-icon {
+                font-size: 3rem;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .back-home {
+                position: fixed;
+                top: 0.5rem;
+                left: 0.5rem;
+                padding: 0.5rem 0.75rem;
+                font-size: 0.8rem;
+                z-index: 1000;
+            }
+            
+            .verification-container {
+                margin: 0.5rem;
+            }
+            
+            .verification-header {
+                padding: 1.5rem 1.25rem 0.75rem;
+            }
+            
+            .verification-body {
+                padding: 1rem 1.25rem 1.75rem;
+            }
+            
+            .brand-title, .title-style {
+                font-size: 1.6rem;
+            }
+            
+            .verification-header h4 {
+                font-size: 1.3rem;
+            }
+            
+            .verification-icon {
+                font-size: 2.5rem;
+            }
+            
+            .form-control, .btn-primary, .btn-success {
+                height: 45px;
+                font-size: 0.9rem;
+            }
+        }
+        
+        @media (max-width: 360px) {
+            .verification-header {
+                padding: 1rem 1rem 0.5rem;
+            }
+            
+            .verification-body {
+                padding: 0.75rem 1rem 1.5rem;
+            }
+            
+            .brand-title, .title-style {
+                font-size: 1.4rem;
+            }
+            
+            .verification-header h4 {
+                font-size: 1.2rem;
+            }
+            
+            .verification-icon {
+                font-size: 2rem;
+                margin-bottom: 0.75rem;
+            }
+            
+            .form-control, .btn-primary, .btn-success {
+                height: 40px;
+                font-size: 0.85rem;
+            }
+        }
+        
+        /* Additional hover effects */
+        .form-control:hover {
+            border-color: #cbd5e1;
+        }

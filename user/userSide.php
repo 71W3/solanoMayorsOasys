@@ -18,33 +18,27 @@ if (isset($_SESSION['user_id'])) {
             user_id INT NOT NULL,
             appointment_id INT NOT NULL,
             dismissed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,   
-            UNIQUE KEY unique_dismissal (user_id, appointment_id)
+            UNIQUE KEY unique_dismissal (user_id, appointment_id),
+            INDEX idx_user_id (user_id),
+            INDEX idx_appointment_id (appointment_id)
         )";
         $conn->query($create_table_sql);
         
-        // Check for recent status changes (last 24 hours) that haven't been dismissed
+        // Check for recent status changes (last 30 days) that haven't been dismissed
         $user_id = $_SESSION['user_id'];
         
-        // Debug: Check if dismissed_notifications table has data
-        $debug_sql = "SELECT COUNT(*) as dismissed_count FROM dismissed_notifications WHERE user_id = ?";
-        $debug_stmt = $conn->prepare($debug_sql);
-        if ($debug_stmt) {
-            $debug_stmt->bind_param("i", $user_id);
-            $debug_stmt->execute();
-            $debug_result = $debug_stmt->get_result();
-            $debug_row = $debug_result->fetch_assoc();
-            error_log("User $user_id has " . $debug_row['dismissed_count'] . " dismissed notifications");
-            $debug_stmt->close();
-        }
-        
+        // MAIN QUERY: Get appointments that are NOT dismissed
         $sql = "SELECT a.id, a.purpose, a.date, a.time, a.status_enum, a.updated_at 
                 FROM appointments a
-                LEFT JOIN dismissed_notifications dn ON a.id = dn.appointment_id AND dn.user_id = ?
                 WHERE a.user_id = ? 
-                AND a.updated_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-                AND a.status_enum IN ('approved', 'cancelled', 'declined', 'rescheduled','completed')
-                AND dn.id IS NULL
-                ORDER BY a.updated_at DESC";
+                AND a.updated_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+                AND a.status_enum IN ('approved', 'cancelled', 'declined', 'rescheduled', 'completed', 'Approved', 'Cancelled', 'Declined', 'Rescheduled', 'Completed')
+                AND NOT EXISTS (
+                    SELECT 1 FROM dismissed_notifications dn 
+                    WHERE dn.user_id = ? AND dn.appointment_id = a.id
+                )
+                ORDER BY a.updated_at DESC
+                LIMIT 20";
         
         $stmt = $conn->prepare($sql);
         if ($stmt) {
@@ -52,49 +46,22 @@ if (isset($_SESSION['user_id'])) {
             $stmt->execute();
             $result = $stmt->get_result();
             
+            // Debug: Check what we're getting from the database
+            error_log("Executing notification query for user: $user_id");
+            
             while ($row = $result->fetch_assoc()) {
+                // Additional debug: Check each notification
+                error_log("Found notification: ID=" . $row['id'] . ", Status=" . $row['status_enum'] . ", Updated=" . $row['updated_at']);
                 $status_notifications[] = $row;
             }
             $stmt->close();
         } else {
-            // Fallback query if the JOIN fails
-            $fallback_sql = "SELECT id, purpose, date, time, status_enum, updated_at 
-                            FROM appointments 
-                            WHERE user_id = ? 
-                            AND updated_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-                            AND status_enum IN ('approved', 'cancelled', 'declined', 'rescheduled')
-                            ORDER BY updated_at DESC";
-            $stmt = $conn->prepare($fallback_sql);
-            if ($stmt) {
-                $stmt->bind_param("i", $user_id);
-                $stmt->execute();
-                $result = $stmt->get_result();
-                
-                while ($row = $result->fetch_assoc()) {
-                    $status_notifications[] = $row;
-                }
-                $stmt->close();
-            }
+            error_log("Main notification query failed: " . $conn->error);
         }
         
-        // Debug: Log notification count
-        error_log("Found " . count($status_notifications) . " notifications for user $user_id");
-        foreach ($status_notifications as $notif) {
-            error_log("Notification ID: " . $notif['id'] . ", Status: " . $notif['status_enum']);
-        }
+        // Debug: Final notification count and details
+        error_log("FINAL: Found " . count($status_notifications) . " non-dismissed notifications for user $user_id");
         
-        // Add debug output to page
-        if (count($status_notifications) > 0) {
-            echo "<!-- DEBUG: Found " . count($status_notifications) . " notifications -->";
-            echo "<script>console.log('PHP DEBUG: Found " . count($status_notifications) . " notifications');</script>";
-            foreach ($status_notifications as $notif) {
-                echo "<!-- DEBUG: Notification ID: " . $notif['id'] . ", Status: " . $notif['status_enum'] . " -->";
-                echo "<script>console.log('PHP DEBUG: Notification ID: " . $notif['id'] . ", Status: " . $notif['status_enum'] . "');</script>";
-            }
-        } else {
-            echo "<!-- DEBUG: No notifications found -->";
-            echo "<script>console.log('PHP DEBUG: No notifications found');</script>";
-        }
         
         $conn->close();
     }
@@ -297,1348 +264,16 @@ $pm_slots = [
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Book appointments with the Mayor's Office online. Schedule meetings, document requests, and community services efficiently.">
+    <meta name="keywords" content="mayor, appointment, online booking, government services, municipal">
     <title>Mayor's Office - Online Appointment System</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
-    <style>
-        :root {
-            --primary-blue: #0055a4;
-            --primary-green: #28a745;
-            --primary-orange: #ff6b35;
-            --primary-yellow: #ffc107;
-            --primary-light: #f8f9fa;
-            --primary-dark: #212529;
-            --subtle-blue-bg: #f3f7fb;
-            --slot-available-bg: #f7fafd;
-            --slot-available-color: #5a7bbd;
-            --slot-selected-bg: #e3f7f1;
-            --slot-selected-color: #2e8b57;
-            --slot-selected-border: #2e8b57;
-            --slot-pending-bg: #fffbe9;
-            --slot-pending-color: #bfa700;
-            --slot-pending-border: #ffe066;
-            --slot-unavailable-bg: #f6f6f6;
-            --slot-unavailable-color: #bdbdbd;
-            --slot-approved-bg: #eafaf1;
-            --slot-approved-color: #3bb77e;
-            --slot-approved-border: #3bb77e;
-            --slot-shadow: 0 2px 12px 0 rgba(90,123,189,0.07);
-            --slot-focus: 0 0 0 3px #b3e6ff;
-            --booking-bg: #f9fafb;
-            --slot-available-bg: #f9fafb;
-            --slot-available-color: #444;
-            --slot-selected-bg: #eaf3fb;
-            --slot-selected-color: #2563eb;
-            --slot-selected-border: #2563eb;
-            --slot-pending-bg: #f5f6fa;
-            --slot-pending-color: #b1a06b;
-            --slot-pending-border: #e5e7eb;
-            --slot-unavailable-bg: #f3f4f6;
-            --slot-unavailable-color: #bdbdbd;
-            --slot-approved-bg: #f0fdf4;
-            --slot-approved-color: #4caf50;
-            --slot-approved-border: #e5e7eb;
-            --slot-shadow: none;
-        }
-        /* Fix double check icon for approved slot */
-        .bi-check-circle-fill::before { content: none !important; }
-        
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--subtle-blue-bg);
-            color: #333;
-            line-height: 1.6;
-        }
-        
-        .header {
-            background: linear-gradient(135deg, var(--primary-blue) 0%, #003a75 100%);
-            color: white;
-            padding: 15px 0;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            position: sticky;
-            top: 0;
-            z-index: 2000;
-            transition: all 0.3s ease;
-            opacity: 1;
-            pointer-events: auto;
-        }
-
-        .header.hidden {
-            opacity: 0.9;
-            transform: translateY(-100%);
-            pointer-events: auto;
-        }
-
-        .logo-container {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-        
-       
-        
-        .logo i {
-            font-size: 30px;
-            color: var(--primary-blue);
-        }
-        
-        .hero {
-            background:;
-            height: 550px;
-            position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-            color: white;
-        }
-        
-        .hero::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 85, 164, 0.7);
-        }
-        
-        .hero-content {
-            position: relative;
-            z-index: 1;
-            max-width: 800px;
-            padding: 20px;
-        }
-        
-        .section-title {
-            position: relative;
-            margin-bottom: 30px;
-            padding-bottom: 15px;
-            color: var(--primary-blue);
-        }
-        
-        .section-title::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            width: 70px;
-            height: 4px;
-            background: var(--primary-green);
-            border-radius: 2px;
-        }
-        
-        .services-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 25px;
-            margin: 40px 0;
-        }
-        
-        .service-card {
-            background: white;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.05);
-            transition: all 0.3s ease;
-            border: 1px solid rgba(0,0,0,0.05);
-        }
-        
-        .service-card:hover {
-            transform: translateY(-10px);
-            box-shadow: 0 15px 30px rgba(0,0,0,0.1);
-        }
-        
-        .service-icon {
-            height: 120px;
-            background: rgba(0, 85, 164, 0.1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 50px;
-            color: var(--primary-blue);
-        }
-        
-        .service-content {
-            padding: 25px;
-        }
-        
-        .btn-book {
-            background: var(--primary-green);
-            color: white;
-            border: none;
-            padding: 8px 20px;
-            border-radius: 30px;
-            font-weight: 600;
-            transition: all 0.3s;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        .btn-book:hover {
-            background: #218838;
-            transform: scale(1.05);
-        }
-        
-        .booking-section {
-            background: var(--booking-bg);
-            padding: 60px 0;
-        }
-        
-        .booking-container {
-            max-width: 1000px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
-            overflow: hidden;
-            padding-bottom: 40px;
-        }
-        
-        .booking-header {
-            background: var(--primary-blue);
-            color: white;
-            padding: 20px 30px;
-        }
-        
-        .booking-steps {
-            display: flex;
-            flex-direction: row;
-            justify-content: center;
-            align-items: flex-start;
-            gap: 20px;
-            margin-bottom: 0;
-            padding: 30px 0 0 0;
-        }
-        
-        .step {
-            width: 220px;
-            min-height: unset;
-            height: auto;
-            text-align: center;
-            padding: 16px;
-            border-radius: 10px;
-            background: rgba(0, 85, 164, 0.05);
-            position: relative;
-            box-shadow: none;
-        }
-        
-        @media (max-width: 768px) {
-            .booking-steps {
-                flex-direction: column;
-                align-items: stretch;
-                padding: 20px 0 0 0;
-            }
-            .step {
-                width: 100%;
-            }
-        }
-        
-        .step.active {
-            background: rgba(40, 167, 69, 0.1);
-            border: 2px solid var(--primary-green);
-        }
-        
-        .step-number {
-            width: 40px;
-            height: 40px;
-            background: var(--primary-blue);
-            color: white;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 15px;
-            font-weight: bold;
-        }
-        
-        .step.active .step-number {
-            background: var(--primary-green);
-        }
-        
-        .booking-content {
-            display: flex;
-            flex-direction: column;
-            gap: 40px;
-            padding: 30px;
-        }
-        
-        @media (max-width: 992px) {
-            .booking-content {
-                flex-direction: column;
-                gap: 20px;
-                padding: 20px;
-            }
-        }
-        
-        .calendar-container {
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.05);
-            padding: 25px;
-            margin-bottom: 30px;
-        }
-        
-        .calendar-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-        
-        .calendar-grid {
-            display: grid;
-            grid-template-columns: repeat(7, 1fr);
-            grid-auto-rows: 50px;
-            gap: 8px;
-            min-height: 400px;
-            background: transparent;
-        }
-        
-        .calendar-day-header {
-            text-align: center;
-            font-weight: 600;
-            padding: 10px;
-            color: var(--primary-blue);
-        }
-        
-        .calendar-day {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center; /* Center content vertically */
-            height: 50px;
-            border: 1px solid #eee;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s;
-            position: relative;
-            font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
-            font-size: 1.08rem;
-            font-weight: 500;
-        }
-        .calendar-day:hover {
-            background-color: rgba(0, 85, 164, 0.1);
-        }
-        .calendar-day.selected {
-            background-color: var(--primary-blue);
-            color: white;
-            border-color: var(--primary-blue);
-        }
-        .calendar-day.disabled {
-            background-color: #f8f9fa;
-            color: #ccc;
-            cursor: not-allowed;
-        }
-        /* Remove green dot for today */
-        .calendar-day.today::after { display: none !important; }
-        
-        .time-slots-container {
-            margin-top: 25px;
-        }
-        
-        .time-group-header {
-            font-size: 1.1rem;
-            color: var(--primary-blue);
-            margin-top: 20px;
-            margin-bottom: 10px;
-            padding-bottom: 5px;
-            border-bottom: 1px solid #eee;
-            position: relative;
-        }
-        
-        .time-group-header::after {
-            content: '';
-            position: absolute;
-            bottom: -5px;
-            left: 0;
-            width: 100%;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, #ccc, transparent);
-        }
-        
-        .time-slots {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-            gap: 15px;
-        }
-        
-        .time-slot {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 0 16px;
-            min-height: 38px;
-            height: 38px;
-            background: var(--slot-available-bg);
-            border-radius: 8px;
-            text-align: left;
-            cursor: pointer;
-            transition: background 0.15s, color 0.15s, border 0.15s;
-            border: 1px solid transparent;
-            color: var(--slot-available-color);
-            font-family: 'Inter', system-ui, Arial, sans-serif;
-            font-weight: 400;
-            font-size: 1rem;
-            box-shadow: none;
-            position: relative;
-            outline: none;
-            margin-bottom: 6px;
-            margin-top: 0;
-            letter-spacing: 0.01em;
-        }
-        .time-slot:hover {
-            background: #f3f6fa;
-        }
-        .time-slot:focus {
-            box-shadow: var(--slot-focus);
-        }
-        .time-slot.selected {
-            background: #111 !important;
-            color: #fff !important;
-            border: 3px solid #000 !important;
-            font-weight: 700;
-            box-shadow: none !important;
-            z-index: 2;
-            position: relative;
-            transition: background 0.2s, color 0.2s, border 0.2s;
-        }
-        
-        /* Ensure selected state overrides all other states */
-        .time-slot.selected.available,
-        .time-slot.selected.pending,
-        .time-slot.selected.approved {
-            background: #111 !important;
-            color: #fff !important;
-            border: 3px solid #000 !important;
-        }
-        .time-slot.selected .slot-icon i,
-        .time-slot.selected i.bi-check-lg {
-            color: #fff !important;
-        }
-        .time-slot.unavailable {
-            background: var(--slot-unavailable-bg) !important;
-            color: var(--slot-unavailable-color) !important;
-            border: 1px solid var(--slot-unavailable-bg) !important;
-            cursor: not-allowed !important;
-            pointer-events: none;
-            opacity: 0.6;
-        }
-        .time-slot.unavailable .slot-icon svg {
-            stroke: var(--slot-unavailable-color) !important;
-        }
-        .time-slot.approved {
-            background: var(--slot-approved-bg) !important;
-            color: var(--slot-approved-color) !important;
-            border: 1px solid var(--slot-approved-border) !important;
-            font-weight: 500;
-        }
-        .time-slot.approved .slot-icon svg {
-            stroke: var(--slot-approved-color) !important;
-        }
-        .time-slot.pending {
-            background: #f5f6fa !important;
-            color: #b1a06b !important;
-            border: 1px solid #e5e7eb !important;
-            font-weight: 500;
-        }
-        .time-slot.pending .slot-icon svg {
-            stroke: var(--slot-pending-color) !important;
-        }
-        
-        .time-slot.pending::before {
-            content: none !important;
-        }
-        
-        .appointment-indicators {
-            position: absolute;
-            bottom: 5px;
-            display: flex;
-            justify-content: center;
-            width: 100%;
-            gap: 2px;
-        }
-        
-        .appointment-indicator {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-        }
-        
-        .indicator-approved {
-            background-color: var(--primary-green);
-        }
-        
-        .indicator-pending {
-            background-color: var(--primary-yellow);
-        }
-        
-        .form-container {
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.05);
-            padding: 30px;
-        }
-        
-        .btn-submit {
-            background: var(--primary-green);
-            color: white;
-            border: none;
-            padding: 14px 35px;
-            border-radius: 30px;
-            font-weight: 600;
-            font-size: 1.2rem;
-            transition: all 0.3s;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            margin-top: 20px;
-            min-width: 220px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-            position: relative;
-            overflow: hidden;
-        }
-        .notification-item.completed {
-                border-left: 4px solid #10b981 !important;
-                background: #ecfdf5 !important;
-                color: #065f46 !important;
-            }
-
-            .notification-item.completed .notification-icon {
-                background: #10b981 !important;
-                color: white !important;
-                border: 1px solid #10b981 !important;
-            }
-        
-        .btn-submit:hover {
-            background: #218838;
-            transform: translateY(-2px);
-            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
-        }
-        
-        .btn-submit:active {
-            transform: translateY(0);
-        }
-        
-        .btn-submit.loading::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(255, 255, 255, 0.3);
-            animation: loadingPulse 1.5s infinite;
-        }
-        
-        @keyframes loadingPulse {
-            0% { opacity: 0; }
-            50% { opacity: 0.5; }
-            100% { opacity: 0; }
-        }
-        
-        .btn-submit .spinner {
-            display: none;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 1s linear infinite;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        
-        .btn-submit.loading .spinner {
-            display: inline-block;
-        }
-        
-        .btn-submit.success i {
-            color: #fff;
-            font-size: 1.5rem;
-            animation: bounce 0.5s;
-        }
-        
-        @keyframes bounce {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.2); }
-        }
-        
-
-        
-        .notification {
-            animation: slideIn 0.5s forwards, fadeOut 0.5s forwards 4.5s;
-            transform: translateX(100%);
-            opacity: 0;
-        }
-        
-        @keyframes slideIn {
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-        
-        @keyframes fadeOut {
-            to {
-                opacity: 0;
-            }
-        }
-        
-        .faq-container {
-            max-width: 800px;
-            margin: 0 auto;
-        }
-        
-        .accordion-button:not(.collapsed) {
-            background-color: rgba(0, 85, 164, 0.1);
-            color: var(--primary-blue);
-            font-weight: 600;
-        }
-        
-        .testimonial-card {
-            background: white;
-            border-radius: 10px;
-            padding: 30px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.05);
-            margin: 20px 0;
-        }
-        
-        .testimonial-header {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-        
-        .testimonial-avatar {
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-green) 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 24px;
-            font-weight: bold;
-        }
-        
-        .testimonial-rating {
-            color: #ffc107;
-            font-size: 20px;
-            margin-top: 10px;
-        }
-        
-        .footer {
-            background: var(--primary-dark);
-            color: white;
-            padding: 50px 0 20px;
-        }
-        
-        .footer-links a {
-            color: rgba(255,255,255,0.7);
-            text-decoration: none;
-            display: block;
-            margin-bottom: 10px;
-            transition: all 0.3s;
-        }
-        
-        .footer-links a:hover {
-            color: white;
-            padding-left: 5px;
-        }
-        
-        .copyright {
-            border-top: 1px solid rgba(255,255,255,0.1);
-            padding-top: 20px;
-            margin-top: 30px;
-            text-align: center;
-            color: rgba(255,255,255,0.5);
-        }
-        
-        @media (max-width: 768px) {
-            .booking-steps {
-                flex-direction: column;
-            }
-            
-            .hero {
-                height: 300px;
-            }
-            
-            .btn-submit {
-                padding: 12px 25px;
-                font-size: 1.1rem;
-                min-width: 180px;
-            }
-        }
-        
-        @media (min-width: 769px) {
-            .booking-steps {
-                flex-direction: row;
-            }
-            .step {
-                width: 220px;
-                flex: unset;
-            }
-        }
-        
-        .time-divider {
-            display: flex;
-            align-items: center;
-            margin: 25px 0;
-            color: #6c757d;
-        }
-        
-        .time-divider::before,
-        .time-divider::after {
-            content: '';
-            flex: 1;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, #ccc, transparent);
-        }
-        
-        .time-divider span {
-            padding: 0 15px;
-            font-weight: 600;
-        }
-        
-        /* Tooltip styling */
-        .tooltip-inner {
-            background-color: #ffc107;
-            color: #333;
-            font-weight: 500;
-            padding: 8px 12px;
-            border-radius: 4px;
-            z-index: 9999 !important;
-        }
-        
-        .bs-tooltip-top .tooltip-arrow::before, 
-        .bs-tooltip-auto[data-popper-placement^=top] .tooltip-arrow::before {
-            border-top-color: #ffc107;
-        }
-        
-        /* Ensure tooltips are visible */
-        .tooltip {
-            z-index: 9999 !important;
-            opacity: 1 !important;
-            visibility: visible !important;
-        }
-        
-        .tooltip-inner {
-            background-color: #ffc107 !important;
-            color: #333 !important;
-            font-weight: 500 !important;
-            padding: 8px 12px !important;
-            border-radius: 4px !important;
-            opacity: 1 !important;
-            visibility: visible !important;
-        }
-        
-        /* Attachment styling */
-        .attachment-preview {
-            border: 1px dashed #ddd;
-            border-radius: 8px;
-            padding: 15px;
-            margin-top: 15px;
-            background: #f9f9f9;
-            display: none;
-        }
-        
-        .attachment-item {
-            display: flex;
-            align-items: center;
-            padding: 8px;
-            background: white;
-            border-radius: 6px;
-            margin-bottom: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        
-        .attachment-icon {
-            width: 40px;
-            height: 40px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #e9ecef;
-            border-radius: 4px;
-            margin-right: 10px;
-            color: #495057;
-        }
-        
-        .attachment-info {
-            flex-grow: 1;
-        }
-        
-        .attachment-name {
-            font-weight: 500;
-            margin-bottom: 2px;
-        }
-        
-        .attachment-size {
-            color: #6c757d;
-            font-size: 0.85rem;
-        }
-        
-        .attachment-remove {
-            color: #dc3545;
-            cursor: pointer;
-            padding: 5px;
-        }
-        
-        .attachment-remove:hover {
-            color: #bd2130;
-        }
-        .legend-dot {
-            display: inline-block;
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            margin-right: 6px;
-            border: 2px solid #ccc;
-        }
-        .legend-approved {
-            background: #28a745;
-            border-color: #28a745;
-        }
-        .legend-pending {
-            background: #ffc107;
-            border-color: #ffc107;
-        }
-        .legend-available {
-            background: #fff;
-            border-color: #007bff;
-        }
-        .legend-unavailable {
-            background: #eee;
-            border-color: #bbb;
-        }
-        .time-slot.approved {
-            background: #e6f9ed !important;
-            color: #218838 !important;
-            border: 2px solid #28a745 !important;
-            font-weight: 600;
-            position: relative;
-        }
-        .time-slot.approved::before {
-            content: '\f26b'; /* bi-check-circle-fill */
-            font-family: 'bootstrap-icons';
-            color: #28a745;
-            margin-right: 6px;
-            font-size: 1.1em;
-            vertical-align: middle;
-        }
-        .time-slot.pending {
-            background: #fff8e1 !important;
-            color: #856404 !important;
-            border: 2px solid #ffc107 !important;
-            font-weight: 600;
-            position: relative;
-            cursor: not-allowed !important;
-            opacity: 0.5 !important;
-            pointer-events: none !important;
-            box-shadow: none !important;
-        }
-        .time-slot.pending::before {
-            content: '\f335'; /* bi-hourglass-split */
-            font-family: 'bootstrap-icons';
-            color: #ffc107;
-            margin-right: 6px;
-            font-size: 1.1em;
-            vertical-align: middle;
-        }
-        .time-slot.unavailable {
-            background: #eee !important;
-            color: #aaa !important;
-            border: 1px solid #bbb !important;
-            cursor: not-allowed !important;
-            pointer-events: none;
-            opacity: 0.7;
-        }
-        .time-slot.available {
-            background: #fff !important;
-            color: #007bff !important;
-            border: 1px solid #007bff !important;
-        }
-        @media (max-width: 1200px) {
-            .info-box {
-                position: static !important;
-                width: 100% !important;
-                min-width: unset !important;
-                margin-bottom: 20px;
-            }
-        }
-        .time-slot.selected .slot-icon i {
-            color: inherit !important;
-            fill: inherit !important;
-            font-size: inherit !important;
-            text-shadow: none !important;
-        }
-        .time-slot .slot-icon {
-            display: flex;
-            align-items: center;
-        }
-        .tooltip.bs-tooltip-top .tooltip-arrow::before,
-        .tooltip.bs-tooltip-bottom .tooltip-arrow::before,
-        .tooltip.bs-tooltip-start .tooltip-arrow::before,
-        .tooltip.bs-tooltip-end .tooltip-arrow::before {
-            border-top-color: #111 !important;
-            border-bottom-color: #111 !important;
-            border-left-color: #111 !important;
-            border-right-color: #111 !important;
-        }
-
-        .tooltip-inner {
-            background-color: #111 !important;
-            color: #fff !important;
-            font-weight: 500;
-            padding: 4px 8px; /* Reduced padding */
-            border-radius: 6px;
-            font-size: 0.85rem; /* Reduced font size */
-            transition: background 0.3s, color 0.3s;
-        }
-        .calendar-day.today > div:nth-child(2) {
-            margin-top: 8px !important; /* Reduced for better centering */
-            font-size: 0.65em;
-            color: #28a745;
-            font-weight: 600;
-            line-height: 1.1;
-        }
-        .calendar-day.today > div:first-child {
-            margin-bottom: 0 !important;
-        }
-
-        /* Simple Notification Bell Styles */
-        .notification-bell-container {
-            position: relative;
-            display: inline-block;
-        }
-
-        .notification-bell {
-            position: relative;
-            width: 40px;
-            height: 40px;
-            background: #6c757d;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: background-color 0.2s ease;
-            color: white;
-            font-size: 1.2rem;
-            z-index: 1001;
-        }
-
-        .notification-bell:hover {
-            background: #5a6268;
-        }
-
-        .notification-badge {
-            position: absolute;
-            top: -5px;
-            right: -5px;
-            background: #dc3545;
-            color: white;
-            border-radius: 50%;
-            width: 18px;
-            height: 18px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.7rem;
-            font-weight: bold;
-            border: 2px solid white;
-            transition: opacity 0.3s ease;
-        }
-
-        .notification-bell:hover .notification-badge {
-            opacity: 0;
-        }
-
-        .notification-dropdown {
-            position: absolute;
-            top: 100%;
-            right: 0;
-            width: 300px;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            z-index: 1000;
-            margin-top: 8px;
-            display: none;
-            max-height: 400px;
-            overflow: hidden;
-        }
-
-        .notification-dropdown.show {
-            display: block;
-        }
-
-        .notification-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 16px;
-            background: #f8f9fa;
-            border-bottom: 1px solid #e9ecef;
-        }
-
-        .notification-header h6 {
-            font-weight: 600;
-            color: #333;
-            font-size: 1rem;
-            margin: 0;
-        }
-
-        .notification-header .btn-close {
-            background: none;
-            border: none;
-            color: #666;
-            font-size: 1rem;
-            cursor: pointer;
-            padding: 4px;
-            border-radius: 4px;
-            transition: background-color 0.2s ease;
-        }
-
-        .notification-header .btn-close:hover {
-            background: #e9ecef;
-        }
-
-        .notification-header .btn-outline-success {
-            border-color: #10b981;
-            color: #10b981;
-            font-size: 0.8rem;
-            padding: 4px 8px;
-            transition: all 0.2s ease;
-        }
-
-        .notification-header .btn-outline-success:hover {
-            background-color: #10b981;
-            border-color: #10b981;
-            color: white;
-            transform: scale(1.05);
-        }
-
-        .notification-header .btn-outline-success:active {
-            transform: scale(0.95);
-        }
-
-        .notification-list {
-            max-height: 300px;
-            overflow-y: auto;
-        }
-
-        .notification-item {
-            display: flex;
-            align-items: flex-start;
-            gap: 8px;
-            padding: 12px 12px;
-            border-bottom: 1px solid #f1f3f4;
-            transition: background-color 0.2s ease;
-            position: relative;
-            border-left: 3px solid transparent;
-        }
-
-        .notification-item:last-child {
-            border-bottom: none;
-        }
-
-        .notification-item:hover {
-            background: #f8f9fa;
-            transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-
-        .notification-item.Approved {
-            border-left-color: #10b981 !important;
-            background: #ecfdf5 !important;
-            border-left-width: 4px !important;
-            border-left-style: solid !important;
-        }
-
-        .notification-item.Cancelled,
-        .notification-item.Declined {
-            border-left-color: #ef4444 !important;
-            background: #fef2f2 !important;
-            border-left-width: 4px !important;
-            border-left-style: solid !important;
-        }
-
-        .notification-item.Rescheduled {
-            border-left-color: #3b82f6 !important;
-            background: #eff6ff !important;
-            border-left-width: 4px !important;
-            border-left-style: solid !important;
-        }
-
-        .notification-item .notification-icon {
-            flex-shrink: 0;
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.8rem;
-        }
-
-        .notification-item.Approved .notification-icon {
-            background: #10b981 !important;
-            color: white !important;
-            border: 1px solid #10b981 !important;
-        }
-
-        .notification-item.Cancelled .notification-icon,
-        .notification-item.Declined .notification-icon {
-            background: #ef4444 !important;
-            color: white !important;
-            border: 1px solid #ef4444 !important;
-        }
-
-        .notification-item.Rescheduled .notification-icon {
-            background: #3b82f6 !important;
-            color: white !important;
-            border: 1px solid #3b82f6 !important;
-        }
-
-        .notification-item .notification-content {
-            flex: 1;
-            min-width: 0;
-        }
-
-        .notification-item .notification-title {
-            font-weight: 600;
-            font-size: 0.9rem;
-            margin-bottom: 4px;
-            color: #333;
-        }
-
-        .notification-item .notification-message {
-            font-size: 0.8rem;
-            color: #666;
-            line-height: 1.4;
-            margin-bottom: 4px;
-        }
-
-        .notification-item .notification-time {
-            font-size: 0.75rem;
-            color: #999;
-        }
-
-        .notification-item .notification-close {
-            position: absolute;
-            top: 8px;
-            right: 8px;
-            background: none;
-            border: none;
-            color: #999;
-            font-size: 0.9rem;
-            cursor: pointer;
-            padding: 4px;
-            border-radius: 4px;
-            transition: all 0.2s ease;
-            opacity: 0;
-        }
-
-        .notification-item:hover .notification-close {
-            opacity: 1;
-        }
-
-        .notification-item .notification-close:hover {
-            background: #e9ecef;
-            color: #666;
-        }
-
-        /* Empty state */
-        .notification-empty {
-            padding: 32px 16px;
-            text-align: center;
-            color: #666;
-        }
-
-        .notification-empty i {
-            font-size: 2rem;
-            margin-bottom: 12px;
-            opacity: 0.5;
-        }
-
-        .notification-empty h6 {
-            font-weight: 600;
-            margin-bottom: 6px;
-        }
-
-        .notification-empty p {
-            font-size: 0.85rem;
-            margin: 0;
-        }
-
-        /* Mobile Responsive */
-        @media (max-width: 768px) {
-            .notification-dropdown {
-                position: fixed;
-                top: 60px;
-                right: 10px;
-                left: 10px;
-                width: auto;
-                max-height: 60vh;
-                margin-top: 0;
-            }
-
-            .notification-list {
-                max-height: 50vh;
-            }
-
-            .notification-item {
-                padding: 10px 8px;
-                gap: 6px;
-            }
-
-            .notification-item .notification-icon {
-                width: 20px;
-                height: 20px;
-                font-size: 0.7rem;
-            }
-
-            .notification-item .notification-title {
-                font-size: 0.85rem;
-                font-weight: 600;
-            }
-
-            .notification-item .notification-message {
-                font-size: 0.75rem;
-                line-height: 1.3;
-            }
-
-            .notification-item .notification-time {
-                font-size: 0.7rem;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .notification-bell {
-                width: 36px;
-                height: 36px;
-                font-size: 1.1rem;
-            }
-
-            .notification-badge {
-                width: 16px;
-                height: 16px;
-                font-size: 0.65rem;
-            }
-
-            .notification-dropdown {
-                top: 50px;
-                right: 5px;
-                left: 5px;
-            }
-
-            .notification-header {
-                padding: 10px 12px;
-            }
-
-            .notification-item {
-                padding: 8px 6px;
-                gap: 5px;
-            }
-
-            .notification-item .notification-icon {
-                width: 18px;
-                height: 18px;
-                font-size: 0.65rem;
-            }
-
-            .notification-item .notification-title {
-                font-size: 0.8rem;
-            }
-
-            .notification-item .notification-message {
-                font-size: 0.7rem;
-            }
-
-            .notification-item .notification-time {
-                font-size: 0.65rem;
-            }
-        }
-
-
-
-
-
-        .notification-time {
-            font-size: 0.8rem;
-            color: #999;
-            font-style: italic;
-        }
-
-        .notification-close {
-            background: none;
-            border: none;
-            color: #999;
-            font-size: 1.2rem;
-            cursor: pointer;
-            padding: 5px;
-            border-radius: 50%;
-            transition: all 0.2s;
-            flex-shrink: 0;
-            position: relative;
-            z-index: 10;
-        }
-
-        .notification-close:hover {
-            background: rgba(0,0,0,0.1);
-            color: #666;
-            transform: scale(1.1);
-        }
-        
-        .notification-close:active {
-            transform: scale(0.95);
-        }
-
-        @keyframes slideInRight {
-            from {
-                transform: translateX(100%);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-
-        @keyframes slideOutRight {
-            from {
-                transform: translateX(0);
-                opacity: 1;
-            }
-            to {
-                transform: translateX(100%);
-                opacity: 0;
-            }
-        }
-
-
-
-        @keyframes fadeOut {
-            to {
-                opacity: 0;
-                transform: translateX(100%);
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="userStyles/userSide.css?v=<?= filemtime('userStyles/userSide.css') ?>">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+    <link rel="preload" href="images/logooo.png" as="image">
+    <link rel="prefetch" href="userAppointment.php">    
 </head>
 <body>
     <!-- Notification Container -->
@@ -1678,30 +313,26 @@ $pm_slots = [
     <!-- Header -->
     <header class="header">
         <div class="container">
-            <div class="d-flex justify-content-between align-items-center">
                 <div class="logo-container">
-                  <div class ="logo">
-                       <img src="images/logooo.png" alt="Company Logo" style="width:150px; height:auto; border-radius: 15px;">
+                  <div class="logo">
+                       <img src="images/logooo.png" alt="Company Logo">
                    </div>
                     <div>
                         <h4 class="mb-0">Solano Mayor's Office</h4>
-                         
-                        <p class="mb-0" style = "font-size:13px;">Online Appointment System</p>
+                        <p class="mb-0">Online Appointment System</p>
                     </div>
                 </div>
                 
                 <!-- Profile and Logout Section -->
-                <div class="d-flex align-items-center">
+                <div class="header-actions">
                     <?php if($username): ?>
-                        <div class="dropdown me-3">
-                            <button class="btn btn-link text-white dropdown-toggle d-flex align-items-center" 
+                        <div class="dropdown">
+                            <button class="btn dropdown-toggle" 
                                     type="button" id="userDropdown" 
                                     data-bs-toggle="dropdown" 
                                     aria-expanded="false">
-                                <div class="me-2">
-                                    <i class="bi bi-person-circle fs-4"></i>
-                                </div>
-                                <span class="fw-bold"><?php echo htmlspecialchars($username); ?></span>
+                                <i class="bi bi-person-circle"></i>
+                                <span><?php echo htmlspecialchars($username); ?></span>
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                                 <li><a class="dropdown-item" href="#"><i class="bi bi-person me-2"></i>My Profile</a></li>
@@ -1717,16 +348,15 @@ $pm_slots = [
                         
                         <!-- Notification Bell -->
                         <div class="notification-bell-container">
-                            <div class="notification-bell" id="notificationBell" style="cursor: pointer;" onclick="console.log('Bell clicked via onclick'); toggleNotifications();">
+                            <button type="button" class="btn notification-bell" id="notificationBell" onclick="toggleNotifications();">
                                 <i class="bi bi-bell"></i>
                                 <?php if (!empty($status_notifications)): ?>
                                     <span class="notification-badge"><?php echo count($status_notifications); ?></span>
-                                    <!-- Debug: Found <?php echo count($status_notifications); ?> notifications -->
                                 <?php else: ?>
                                     <!-- Debug: No notifications found -->
                                 <?php endif; ?>
-                            </div>
-
+                            </button>
+                            
                             <!-- Notification Dropdown -->
                             <?php if (!empty($status_notifications)): ?>
                                 <div class="notification-dropdown" id="notificationDropdown">
@@ -1938,9 +568,9 @@ $pm_slots = [
             <div class="d-flex flex-row-reverse flex-wrap gap-4 align-items-start" style="min-height: 700px;">
                 <div style="flex:1; min-width: 320px;">
                     <div class="booking-container">
-                        <div class="booking-header">
-                            <h3 class="mb-0">Document Request Service</h3>
-                        </div>
+                        <!-- <div class="booking-header">
+                            <h3 class="mb-0">OASYS - Online Appointment SYStem</h3>
+                        </div> -->
                         <!-- Steps go above the calendar and form -->
                         <div class="booking-steps">
                             <div class="step active">
@@ -1970,7 +600,7 @@ $pm_slots = [
                                 </div>
                                 <!-- Legend for time slots -->
                                 <div class="mb-3 d-flex flex-wrap align-items-center gap-3" style="font-size: 1rem;">
-                                    <span class="d-flex align-items-center"><span class="legend-dot legend-approved me-1"></span> Approved</span>
+                    
                                     <span class="d-flex align-items-center"><span class="legend-dot legend-pending me-1"></span> Pending</span>
                                     <span class="d-flex align-items-center"><span class="legend-dot legend-available me-1"></span> Available</span>
                                     <span class="d-flex align-items-center"><span class="legend-dot legend-unavailable me-1"></span> Unavailable</span>
@@ -2131,7 +761,7 @@ $pm_slots = [
                         </h2>
                         <div id="collapseOne" class="accordion-collapse collapse show">
                             <div class="accordion-body">
-                                You can book appointments up to 30 days in advance. Same-day appointments may be available depending on staff schedules.
+                                You can book appointments up to 14 days in advance. Same-day appointments may be available depending on staff schedules.
                             </div>
                         </div>
                     </div>
@@ -2157,7 +787,7 @@ $pm_slots = [
                         </h2>
                         <div id="collapseThree" class="accordion-collapse collapse">
                             <div class="accordion-body">
-                                Yes, you can reschedule or cancel your appointment up to 24 hours before your scheduled time through the link in your confirmation email.
+                                Yes, you can reschedule or cancel your appointment up to 24 hours before your scheduled time through the link in your confirmation email or through the "My appointments" in your profile.
                             </div>
                         </div>
                     </div>
@@ -2239,51 +869,75 @@ $pm_slots = [
 
     <!-- Confirmation Modal -->
     <div class="modal fade" id="confirmationModal" tabindex="-1" aria-labelledby="confirmationModalLabel" aria-hidden="true">
-      <div class="modal-dialog modal-dialog-centered" style="max-width: 600px;">
-        <div class="modal-content" style="max-height: 90vh; display: flex; flex-direction: column;">
-          <div class="modal-header" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; border-bottom: none;">
-            <h5 class="modal-title" id="confirmationModalLabel" style="font-weight: 600;">
-              <i class="bi bi-calendar-check me-2"></i>Confirm Your Appointment
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content confirmation-modal-content">
+          
+          <div class="modal-header confirmation-modal-header">
+            <h5 class="modal-title confirmation-modal-title" id="confirmationModalLabel">
+              <i class="bi bi-calendar-check"></i>
+              <span class="d-none d-sm-inline">Confirm Your Appointment</span>
+              <span class="d-sm-none">Confirm</span>
             </h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
-          <div class="modal-body" id="confirmationSummary" style="padding: 30px; overflow-y: auto; flex: 1 1 auto;">
+          
+          <div class="modal-body confirmation-modal-body" id="confirmationSummary">
             <!-- Summary will be injected here -->
           </div>
-          <!-- <div class="modal-footer" style="border-top: 1px solid #e9ecef; padding: 20px 30px;">
-            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" style="padding: 10px 25px; font-weight: 500;">
-              <i class="bi bi-x-circle me-2"></i>Cancel
-            </button> -->
-           <div class="modal-footer" style="border-top: 1px solid #e9ecef; padding: 20px 30px;">
-    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" style="padding: 10px 25px; font-weight: 500;">
-        <i class="bi bi-x-circle me-2"></i>Cancel
-    </button>
-            <button type="button" class="btn btn-success" id="finalConfirmBtn" style="padding: 12px 30px; font-weight: 600; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); border: none; box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);">
-                <span class="spinner-border spinner-border-sm me-2 d-none" role="status" aria-hidden="true" id="modalSpinner"></span>
-                <span id="modalBtnText"><i class="bi bi-check-circle me-2"></i>Confirm Appointment</span>
+          
+          <div class="modal-footer confirmation-modal-footer">
+            <button type="button" class="btn btn-outline-secondary flex-fill flex-sm-grow-0" data-bs-dismiss="modal">
+              <i class="bi bi-x-circle"></i>
+              <span class="d-none d-sm-inline ms-1">Cancel</span>
             </button>
-        </div>
+            <button type="button" class="btn btn-primary flex-fill flex-sm-grow-0" id="finalConfirmBtn">
+              <span class="spinner-border spinner-border-sm me-2 d-none" role="status" aria-hidden="true" id="modalSpinner"></span>
+              <span id="modalBtnText">
+                <i class="bi bi-check-circle"></i>
+                <span class="d-none d-sm-inline ms-1">Confirm Appointment</span>
+                <span class="d-sm-none ms-1">Confirm</span>
+              </span>
+            </button>
           </div>
+          
         </div>
       </div>
     </div>
 
     <!-- Attachment Preview Modal -->
     <div class="modal fade" id="attachmentPreviewModal" tabindex="-1" aria-labelledby="attachmentPreviewModalLabel" aria-hidden="true">
-      <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable attachment-preview-modal">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title" id="attachmentPreviewModalLabel">Attachment Preview</h5>
+            <h5 class="modal-title" id="attachmentPreviewModalLabel">
+              <i class="bi bi-paperclip me-2"></i>
+              <span class="d-none d-sm-inline">Attachment Preview</span>
+              <span class="d-sm-none">Preview</span>
+            </h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
-          <div class="modal-body" id="attachmentPreviewBody" style="text-align:center; min-height:300px; display:flex; align-items:center; justify-content:center;"></div>
+          <div class="modal-body attachment-preview-body" id="attachmentPreviewBody">
+            <!-- Preview content will be injected here -->
+          </div>
         </div>
       </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" defer></script>
+    <script src="javascripts/userSide.js?v=<?= filemtime('javascripts/userSide.js') ?>" defer></script>
     <script>
+        // PHP variables for JavaScript
+        const appointmentCounts = <?php echo json_encode($appointment_counts); ?>;
+        const amSlots = <?php echo json_encode($am_slots); ?>;
+        const pmSlots = <?php echo json_encode($pm_slots); ?>;
+        const showLoginSuccess = <?php echo $show_login_success ? 'true' : 'false'; ?>;
+        const userFullName = <?php echo json_encode($user_full_name ?? ''); ?>;
+        
         document.addEventListener('DOMContentLoaded', function() {
+            // Initialize Bootstrap dropdowns
+            const dropdownElementList = document.querySelectorAll('.dropdown-toggle');
+            const dropdownList = [...dropdownElementList].map(dropdownToggleEl => new bootstrap.Dropdown(dropdownToggleEl));
+            
             // Show login success toast if available
             <?php if($show_login_success): ?>
             var loginSuccessToast = document.getElementById('loginSuccessToast');
@@ -2617,50 +1271,70 @@ $pm_slots = [
                         }
                         // Build summary HTML
                         let summaryHtml = `
-                            <div style="text-align: center; margin-bottom: 25px;">
-                                <div style="width: 80px; height: 80px; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 15px;">
-                                    <i class="bi bi-calendar-check" style="font-size: 2.5rem; color: white;"></i>
+                            <div style="text-align: center; margin-bottom: 30px;">
+                                <div style="width: 60px; height: 60px; background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 15px;">
+                                    <i class="bi bi-calendar-check" style="font-size: 1.8rem; color: #6366f1;"></i>
                                 </div>
-                                <h6 style="color: #28a745; font-weight: 600; margin-bottom: 5px;">Appointment Summary</h6>
-                                <p style="color: #6c757d; margin: 0;">Please review your appointment details below</p>
+                                <h6 style="color: #1e293b; font-weight: 600; margin-bottom: 5px; font-size: 1.1rem;">Appointment Summary</h6>
+                                <p style="color: #64748b; margin: 0; font-size: 0.9rem;">Please review your appointment details below</p>
                             </div>
-                            <div style="background: #f8f9fa; border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                                <div style="background: white; padding: 15px; border-radius: 8px; border-left: 4px solid #28a745; margin-bottom: 10px;">
-                                    <div style="color: #6c757d; font-size: 0.9rem; margin-bottom: 5px;"><i class="bi bi-calendar me-1"></i>Requested Appointment Date & Time</div>
-                                    <div style="font-weight: 600; color: #333;">
+                            
+                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                                <div style="background: white; padding: 16px; border-radius: 8px; border: 1.5px solid #d1d5db; margin-bottom: 16px;">
+                                    <div style="color: #6b7280; font-size: 0.85rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+                                        <i class="bi bi-calendar" style="font-size: 0.8rem;"></i>
+                                        Requested Appointment Date & Time
+                                    </div>
+                                    <div style="font-weight: 600; color: #111827; font-size: 1rem;">
                                         ${selectedDate && selectedDate.trim() !== '' ? 
                                             `${selectedDate} at ${selectedTime}` : 
-                                            '<span style="color: #dc3545; font-weight: 700;">Please select a date</span>'
+                                            '<span style="color: #ef4444; font-weight: 700;">Please select a date</span>'
                                         }
                                     </div>
                                 </div>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                                    <div style="background: white; padding: 15px; border-radius: 8px; border-left: 4px solid #28a745;">
-                                        <div style="color: #6c757d; font-size: 0.9rem; margin-bottom: 5px;"><i class="bi bi-file-text me-1"></i>Purpose</div>
-                                        <div style="font-weight: 600; color: #333;">${purpose}</div>
+                                
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                                    <div style="background: white; padding: 16px; border-radius: 8px; border: 1.5px solid #d1d5db;">
+                                        <div style="color: #6b7280; font-size: 0.85rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+                                            <i class="bi bi-file-text" style="font-size: 0.8rem;"></i>
+                                            Purpose
+                                        </div>
+                                        <div style="font-weight: 600; color: #111827;">${purpose}</div>
                                     </div>
-                                    <div style="background: white; padding: 15px; border-radius: 8px; border-left: 4px solid #28a745; margin-top: 10px;">
-                                        <div style="color: #6c757d; font-size: 0.9rem; margin-bottom: 5px;"><i class="bi bi-people me-1"></i>Attendees</div>
-                                        <div style="font-weight: 600; color: #333;">${attendees} person(s)</div>
+                                    
+                                    <div style="background: white; padding: 16px; border-radius: 8px; border: 1.5px solid #d1d5db;">
+                                        <div style="color: #6b7280; font-size: 0.85rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+                                            <i class="bi bi-people" style="font-size: 0.8rem;"></i>
+                                            Attendees
+                                        </div>
+                                        <div style="font-weight: 600; color: #111827;">${attendees} person(s)</div>
                                     </div>
+                                    
                                     ${otherDetails ? `
-                                    <div style="background: white; padding: 15px; border-radius: 8px; border-left: 4px solid #28a745; margin-top: 10px;">
-                                        <div style="color: #6c757d; font-size: 0.9rem; margin-bottom: 5px;"><i class="bi bi-chat-text me-1"></i>Additional Details</div>
-                                        <div style="font-weight: 600; color: #333;">${otherDetails}</div>
+                                    <div style="background: white; padding: 16px; border-radius: 8px; border: 1.5px solid #d1d5db; grid-column: span 2;">
+                                        <div style="color: #6b7280; font-size: 0.85rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+                                            <i class="bi bi-chat-text" style="font-size: 0.8rem;"></i>
+                                            Additional Details
+                                        </div>
+                                        <div style="font-weight: 600; color: #111827;">${otherDetails}</div>
                                     </div>
                                     ` : ''}
+                                    
                                     ${document.getElementById('fileInput').files.length > 0 ? `
-                                    <div style="background: white; padding: 15px; border-radius: 8px; border-left: 4px solid #28a745; margin-top: 10px;">
-                                        <div style="color: #6c757d; font-size: 0.9rem; margin-bottom: 10px;"><i class="bi bi-paperclip me-1"></i>Attachment(tap to preview)</div>
-                                        <div id="modalAttachmentPreviewList" style="display: flex; flex-wrap: wrap; gap: 15px; margin-top: 15px; max-height: 200px; overflow-y: auto;">
+                                    <div style="background: white; padding: 16px; border-radius: 8px; border: 1.5px solid #d1d5db; grid-column: span 2;">
+                                        <div style="color: #6b7280; font-size: 0.85rem; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+                                            <i class="bi bi-paperclip" style="font-size: 0.8rem;"></i>
+                                            Attachments (tap to preview)
+                                        </div>
+                                        <div id="modalAttachmentPreviewList" style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; max-height: 200px; overflow-y: auto;">
                                             ${Array.from(document.getElementById('fileInput').files).map((file, idx) => `
-                                                <div class="modal-attachment-card" data-idx="${idx}" style="position: relative; width: 120px; height: 140px; border-radius: 8px; overflow: hidden; box-shadow: 0 3px 10px rgba(0,0,0,0.1); transition: all 0.3s; background: #f8f9fa; cursor: pointer;">
-                                                    <div style="height: 90px; display: flex; align-items: center; justify-content: center; background: #e9ecef;">
-                                                        <i class="bi ${getFileIcon(file.name.split('.').pop().toLowerCase())}" style="font-size: 2.5rem; color: #6c757d;"></i>
+                                                <div class="modal-attachment-card" data-idx="${idx}" style="position: relative; width: 100px; height: 120px; border-radius: 8px; overflow: hidden; border: 1.5px solid #d1d5db; background: #f9fafb; cursor: pointer; transition: all 0.2s ease;">
+                                                    <div style="height: 80px; display: flex; align-items: center; justify-content: center; background: #f3f4f6;">
+                                                        <i class="bi ${getFileIcon(file.name.split('.').pop().toLowerCase())}" style="font-size: 2rem; color: #6b7280;"></i>
                                                     </div>
                                                     <div style="padding: 8px; text-align: center;">
-                                                        <div style="font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #495057;">${file.name}</div>
-                                                        <div style="font-size: 0.65rem; color: #868e96;">${formatFileSize(file.size)}</div>
+                                                        <div style="font-size: 0.7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #374151; font-weight: 500;">${file.name}</div>
+                                                        <div style="font-size: 0.65rem; color: #9ca3af; margin-top: 2px;">${formatFileSize(file.size)}</div>
                                                     </div>
                                                 </div>
                                             `).join('')}
@@ -2669,9 +1343,10 @@ $pm_slots = [
                                     ` : ''}
                                 </div>
                             </div>
-                            <div style="background: #e8f5e8; border: 1px solid #28a745; border-radius: 8px; padding: 15px; text-align: center;">
-                                <i class="bi bi-info-circle me-2" style="color: #28a745;"></i>
-                                <span style="color: #28a745; font-weight: 500;">Your appointment will be submitted for approval</span>
+                            
+                            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; text-align: center;">
+                                <i class="bi bi-info-circle me-2" style="color: #16a34a;"></i>
+                                <span style="color: #166534; font-weight: 500; font-size: 0.9rem;">Your appointment will be submitted for approval</span>
                             </div>
                         `;
                         console.log('About to show confirmation modal');
@@ -2889,9 +1564,9 @@ $pm_slots = [
                     }
                     // --- END NEW LOGIC ---
                     if (status === 'approved') {
-                        slotClass = 'time-slot approved';
-                        icon = `<i class="bi bi-check-circle-fill" style="font-size:1.3em;"></i>`;
-                        style = 'display:flex;align-items:center;justify-content:center;gap:2px;background:#e6f9ed;color:#218838;border:2px solid #28a745;font-weight:600;min-width:100px;padding:6px 12px;white-space:nowrap;';
+                        slotClass = 'time-slot unavailable';
+                        icon = `<i class="bi bi-bookmark-check-fill" style="font-size:1.3em;"></i>`;
+                        style = 'display:flex;align-items:center;justify-content:center;gap:2px;background:#eee;color:#aaa;border:1px solid #bbb;min-width:100px;padding:6px 12px;white-space:nowrap;opacity:0.7;cursor:not-allowed;pointer-events:none;';
                         tooltip = 'This timeslot is approved.';
                     } else if (status === 'pending') {
                         slotClass = 'time-slot pending';
@@ -2948,9 +1623,9 @@ $pm_slots = [
                     }
                     // --- END NEW LOGIC ---
                     if (status === 'approved') {
-                        slotClass = 'time-slot approved';
-                        icon = `<i class="bi bi-check-circle-fill" style="font-size:1.3em;"></i>`;
-                        style = 'display:flex;align-items:center;justify-content:center;gap:2px;background:#e6f9ed;color:#218838;border:2px solid #28a745;font-weight:600;min-width:100px;padding:6px 12px;white-space:nowrap;';
+                        slotClass = 'time-slot unavailable';
+                        icon = `<i class="bi bi-bookmark-check-fill" style="font-size:1.3em;"></i>`;
+                        style = 'display:flex;align-items:center;justify-content:center;gap:2px;background:#eee;color:#aaa;border:1px solid #bbb;min-width:100px;padding:6px 12px;white-space:nowrap;opacity:0.7;cursor:not-allowed;pointer-events:none;';
                         tooltip = 'This timeslot is approved.';
                     } else if (status === 'pending') {
                         slotClass = 'time-slot pending';
@@ -3376,78 +2051,101 @@ $pm_slots = [
             
             // Update notification count and badge
             function updateNotificationCount() {
-                const notificationItems = document.querySelectorAll('.notification-item');
-                const badge = document.querySelector('.notification-badge');
-                const dropdown = document.getElementById('notificationDropdown');
+            const notificationItems = document.querySelectorAll('.notification-item');
+            const badge = document.querySelector('.notification-badge');
+            const dropdown = document.getElementById('notificationDropdown');
+            
+            console.log('Updating notification count. Found items:', notificationItems.length);
+            
+            if (notificationItems.length === 0) {
+                // No more notifications, hide badge and show empty state
+                if (badge) {
+                    badge.style.display = 'none';
+                    console.log('Hiding notification badge');
+                }
                 
-                console.log('Updating notification count. Found items:', notificationItems.length);
-                
-                if (notificationItems.length === 0) {
-                    // No more notifications, hide badge and show empty state
-                    if (badge) {
-                        badge.style.display = 'none';
-                        console.log('Hiding notification badge');
-                    }
-                    if (dropdown) {
-                        // Replace dropdown content with empty state
-                        dropdown.innerHTML = `
-                            <div class="notification-header">
-                                <h6><i class="bi bi-bell me-2"></i>Notifications</h6>
-                                <button type="button" class="btn-close" onclick="toggleNotifications()" title="Close">
-                                    <i class="bi bi-x"></i>
-                                </button>
-                            </div>
-                            <div class="notification-empty">
-                                <i class="bi bi-bell-slash"></i>
-                                <h6>No notifications</h6>
-                                <p>You're all caught up!</p>
-                            </div>
-                        `;
-                    }
-                } else {
-                    // Update badge count
-                    if (badge) {
-                        badge.textContent = notificationItems.length;
-                        badge.style.display = 'flex';
-                        console.log('Updated badge count to:', notificationItems.length);
-                    }
+                if (dropdown) {
+                    // Replace dropdown content with empty state
+                    dropdown.innerHTML = `
+                        <div class="notification-header">
+                            <h6><i class="bi bi-bell me-2"></i>Notifications</h6>
+                            <button type="button" class="btn-close" onclick="toggleNotifications()" title="Close">
+                                <i class="bi bi-x"></i>
+                            </button>
+                        </div>
+                        <div class="notification-empty">
+                            <i class="bi bi-bell-slash"></i>
+                            <h6>No notifications</h6>
+                            <p>You're all caught up!</p>
+                        </div>
+                    `;
+                }
+            } else {
+                // Update badge count
+                if (badge) {
+                    badge.textContent = notificationItems.length;
+                    badge.style.display = 'flex';
+                    console.log('Updated badge count to:', notificationItems.length);
                 }
             }
+        }
 
             // Function to dismiss a single notification
-            function dismissNotification(notificationId) {
-                console.log('Dismissing notification:', notificationId);
-                const notification = document.querySelector(`[data-notification-id="${notificationId}"]`);
-                if (notification) {
-                    console.log('Found notification element, sending dismiss request');
-                    // Send AJAX request to dismiss notification
-                    fetch('dismiss_notification.php', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                        },
-                        body: `notification_id=${notificationId}`
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        console.log('Dismiss response:', data);
-                        if (data.success) {
-                            // Remove the notification from DOM
-                            notification.remove();
-                            console.log('Notification removed from DOM');
-                            // Update the notification count
-                            updateNotificationCount();
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error dismissing notification:', error);
-                        // Still remove the notification locally even if server request fails
-                        notification.remove();
-                        updateNotificationCount();
-                    });
-                } else {
-                    console.log('Notification element not found for ID:', notificationId);
+           function dismissNotification(appointmentId, element = null) {
+                console.log('Dismissing notification for appointment ID:', appointmentId);
+                
+                // If element not provided, find it by appointment ID
+                if (!element) {
+                    element = document.querySelector(`[data-notification-id="${appointmentId}"]`);
                 }
+                
+                if (!element) {
+                    console.error('Could not find notification element for ID:', appointmentId);
+                    return;
+                }
+                
+                fetch('dismiss_notification.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: 'appointment_id=' + appointmentId
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Dismiss response:', data);
+                    if (data.success) {
+                        // Remove the notification from the UI with animation
+                        const notificationItem = element.closest ? element.closest('.notification-item') : element;
+                        if (notificationItem) {
+                            // Add fade out animation
+                            notificationItem.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                            notificationItem.style.opacity = '0';
+                            notificationItem.style.transform = 'translateX(100px)';
+                            
+                            // Remove after animation
+                            setTimeout(() => {
+                                notificationItem.remove();
+                                updateNotificationCount();
+                            }, 300);
+                        }
+                        
+                        console.log('Notification dismissed successfully');
+                    } else {
+                        console.error('Failed to dismiss notification:', data.error);
+                        // Show user-friendly error message
+                        showToastMessage('Failed to dismiss notification: ' + (data.error || 'Unknown error'), 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showToastMessage('An error occurred while dismissing the notification', 'error');
+                });
             }
 
             // Simple toggle function for notifications
@@ -3503,10 +2201,29 @@ $pm_slots = [
                         toggleNotifications();
                     });
                     
-                    // Close dropdown when clicking outside
+                    // Close notification dropdown when clicking outside
                     document.addEventListener('click', function(e) {
-                        if (notificationDropdown && !notificationBell.contains(e.target) && !notificationDropdown.contains(e.target)) {
+                        const notificationContainer = document.querySelector('.notification-bell-container');
+                        
+                        // Close notification dropdown if click is outside the entire notification area
+                        if (notificationDropdown && notificationContainer && 
+                            !notificationContainer.contains(e.target) && 
+                            !notificationDropdown.contains(e.target)) {
                             notificationDropdown.classList.remove('show');
+                            console.log('Notification dropdown closed by outside click');
+                        }
+                        
+                        // Close Bootstrap profile dropdown
+                        const profileDropdown = document.querySelector('.dropdown-menu');
+                        const profileToggle = document.querySelector('.dropdown-toggle');
+                        if (profileDropdown && profileToggle && 
+                            !profileToggle.contains(e.target) && 
+                            !profileDropdown.contains(e.target)) {
+                            // Use Bootstrap's dropdown instance to hide it
+                            const dropdownInstance = bootstrap.Dropdown.getInstance(profileToggle);
+                            if (dropdownInstance) {
+                                dropdownInstance.hide();
+                            }
                         }
                     });
                     
@@ -3548,40 +2265,110 @@ $pm_slots = [
             // Mark all notifications as read
             window.markAllAsRead = function() {
                 const notificationItems = document.querySelectorAll('.notification-item');
+                
+                if (notificationItems.length === 0) {
+                    showToastMessage('No notifications to dismiss', 'info');
+                    return;
+                }
+                
                 let dismissedCount = 0;
+                let totalCount = notificationItems.length;
+                let hasErrors = false;
+                
+                // Show loading state
+                const clearAllBtn = document.querySelector('[onclick="markAllAsRead()"]');
+                if (clearAllBtn) {
+                    clearAllBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Clearing...';
+                    clearAllBtn.disabled = true;
+                }
                 
                 notificationItems.forEach(item => {
                     const notificationId = item.getAttribute('data-notification-id');
                     if (notificationId) {
-                        // Send AJAX request to dismiss notification
                         fetch('dismiss_notification.php', {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/x-www-form-urlencoded',
                             },
-                            body: `notification_id=${notificationId}`
+                            body: `appointment_id=${notificationId}`
                         })
                         .then(response => response.json())
                         .then(data => {
                             dismissedCount++;
-                            // Remove the notification from DOM
-                            item.remove();
                             
-                            // If all notifications have been processed, update the count
-                            if (dismissedCount === notificationItems.length) {
-                                updateNotificationCount();
+                            if (data.success) {
+                                // Add fade out animation
+                                item.style.transition = 'opacity 0.3s ease';
+                                item.style.opacity = '0';
+                                
+                                // Remove after animation
+                                setTimeout(() => {
+                                    item.remove();
+                                }, 300);
+                            } else {
+                                hasErrors = true;
+                                console.error('Failed to dismiss notification:', data.error);
+                            }
+                            
+                            // Check if all notifications have been processed
+                            if (dismissedCount === totalCount) {
+                                setTimeout(() => {
+                                    updateNotificationCount();
+                                    
+                                    // Reset button
+                                    if (clearAllBtn) {
+                                        clearAllBtn.innerHTML = '<i class="bi bi-check2-all me-1"></i>Clear All';
+                                        clearAllBtn.disabled = false;
+                                    }
+                                    
+                                    // Show result message
+                                    if (hasErrors) {
+                                        showToastMessage('Some notifications could not be dismissed', 'warning');
+                                    } else {
+                                        showToastMessage('All notifications cleared successfully', 'success');
+                                    }
+                                }, 350);
                             }
                         })
                         .catch(error => {
                             dismissedCount++;
-                            // Still remove the notification locally even if server request fails
-                            item.remove();
+                            hasErrors = true;
+                            console.error('Error dismissing notification:', error);
                             
-                            // If all notifications have been processed, update the count
-                            if (dismissedCount === notificationItems.length) {
-                                updateNotificationCount();
+                            // Still remove the notification locally
+                            item.style.transition = 'opacity 0.3s ease';
+                            item.style.opacity = '0';
+                            setTimeout(() => {
+                                item.remove();
+                            }, 300);
+                            
+                            // Check if all notifications have been processed
+                            if (dismissedCount === totalCount) {
+                                setTimeout(() => {
+                                    updateNotificationCount();
+                                    
+                                    // Reset button
+                                    if (clearAllBtn) {
+                                        clearAllBtn.innerHTML = '<i class="bi bi-check2-all me-1"></i>Clear All';
+                                        clearAllBtn.disabled = false;
+                                    }
+                                    
+                                    showToastMessage('Some notifications could not be dismissed', 'warning');
+                                }, 350);
                             }
                         });
+                    } else {
+                        dismissedCount++;
+                        // Remove items without IDs immediately
+                        item.remove();
+                        
+                        if (dismissedCount === totalCount) {
+                            updateNotificationCount();
+                            if (clearAllBtn) {
+                                clearAllBtn.innerHTML = '<i class="bi bi-check2-all me-1"></i>Clear All';
+                                clearAllBtn.disabled = false;
+                            }
+                        }
                     }
                 });
             }
@@ -3672,6 +2459,8 @@ $pm_slots = [
                 }
             });
         });
+
+        
     </script>
 </body>
 </html>

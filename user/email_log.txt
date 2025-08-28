@@ -71,3 +71,14 @@ error:0A000086:SSL routines::certificate verify failed
 2025-08-08 13:40:59 | SUCCESS | To: emilpaaladin94@gmail.com | User: mil | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
 2025-08-08 13:43:44 | SUCCESS | To: emilpaladin94@gmail.com | User: Emil Paladin | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
 2025-08-08 13:44:47 | SUCCESS | To: emilpaladin94@gmail.com | User: Emil Paladin | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
+2025-08-10 05:06:38 | SUCCESS | To: emilpaaladin94@gmail.com | User: mil | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
+2025-08-10 05:14:44 | SUCCESS | To: emilpaaladin94@gmail.com | User: mil | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
+2025-08-10 05:15:26 | SUCCESS | To: emilpaladin94@gmail.com | User: Emil Paladin | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
+2025-08-10 05:22:26 | SUCCESS | To: emilpaladin94@gmail.com | User: Emil Paladin | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
+2025-08-12 04:04:46 | SUCCESS | To: emilpaladin94@gmail.com | User: ethan | Subject: Your Verification Code | Message: Verification code sent
+2025-08-13 06:35:46 | SUCCESS | To: emilpaladinnn94@gmail.com | User: Emil Paladin | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
+2025-08-13 06:45:01 | SUCCESS | To: emilpaladinnn94@gmail.com | User: Emil Paladin | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
+2025-08-14 18:33:12 | SUCCESS | To: emilpaladinnn94@gmail.com | User: Emil Paladin | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
+2025-08-17 05:19:42 | SUCCESS | To: emilpaladinnn94@gmail.com | User: Emil Paladin | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
+2025-08-17 05:21:00 | SUCCESS | To: emilpaladinnn94@gmail.com | User: Emil Paladin | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
+2025-08-24 18:29:58 | SUCCESS | To: qwer@gmail.com | User: qweq | Subject: Your Verification Code | Message: Verification code sent

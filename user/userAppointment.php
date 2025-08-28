@@ -220,7 +220,7 @@ function getTimeline($status, $row) {
 }
 
 // Count appointment types
-$counts = ['pending' => 0, 'upcoming' => 0, 'completed' => 0, 'cancelled' => 0, 'declined' => 0];
+$counts = ['pending' => 0, 'upcoming' => 0, 'completed' => 0, 'cancelled' => 0, 'declined' => 0, 'lapsed' => 0];
 foreach ($appointments as $app) {
     switch ($app['status']) {
         case 'Pending Approval':
@@ -231,6 +231,7 @@ foreach ($appointments as $app) {
         case 'Completed': $counts['completed']++; break;
         case 'Cancelled': $counts['cancelled']++; break;
         case 'Declined': $counts['declined']++; break;
+        case 'Lapsed': $counts['lapsed']++; break;
     }
 }
 ?>
@@ -240,1155 +241,70 @@ foreach ($appointments as $app) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Solano Mayor's Office - Appointment System</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Preload critical resources -->
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"></noscript>
+    <link rel="preload" href="userStyles/userAppointment.css?v=<?= time() ?>" as="style">
+    <link rel="preload" href="images/logooo.png" as="image">
+    
+    <!-- Critical CSS inline for faster LCP -->
     <style>
-        :root {
-            --primary-blue: #0055a4;
-            --primary-green: #28a745;
-            --primary-orange: #ff6b35;
-            --primary-yellow: #ffc107;
-            --primary-light: #f8f9fa;
-            --primary-dark: #212529;
+        body{margin:0;padding:0;font-family:'Poppins',sans-serif;background:#f8f9fa;line-height:1.6;min-height:100vh}
+        .header{background:linear-gradient(135deg,#0055a4 0%,#003d7a 100%);padding:0.75rem 0;box-shadow:0 2px 10px rgba(0,0,0,0.1)}
+        .logo-container{display:flex;align-items:center;gap:0.75rem}
+        .app-container{max-width:1200px;margin:0 auto;padding:2rem}
+        .dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1.5rem;margin-bottom:2rem;max-width:1200px;margin-left:auto;margin-right:auto}
+        .dashboard-card{background:white;border-radius:12px;padding:1.5rem;box-shadow:0 2px 8px rgba(0,0,0,0.08);cursor:pointer;transition:transform 0.2s ease;border-left:4px solid transparent;min-height:120px;display:flex;flex-direction:column;justify-content:space-between}
+        .dashboard-card:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,0.12)}
+        .card-header{display:flex;align-items:center;gap:1rem;justify-content:flex-start}
+        .card-icon{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;color:white;flex-shrink:0}
+        .upcoming .card-icon{background:#28a745}
+        .pending-card .card-icon{background:#ffc107;color:#333}
+        .history-card .card-icon{background:#6c757d}
+        .lapsed-card .card-icon{background:#dc3545}
+        .card-info{flex:1;text-align:left}
+        .card-info h4{margin:0;font-size:2rem;font-weight:700;color:#333}
+        .card-info p{margin:0;color:#666;font-size:0.9rem;text-transform:uppercase;letter-spacing:0.5px}
+        .card-arrow{color:#ccc;font-size:1.2rem}
+        .appointment-card{background:white;border-radius:8px;padding:1.5rem;margin-bottom:1rem;box-shadow:0 2px 4px rgba(0,0,0,0.08);cursor:pointer;transition:transform 0.2s ease}
+        .appointment-card:hover{transform:translateY(-1px);box-shadow:0 4px 8px rgba(0,0,0,0.12)}
+        .appointment-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1rem}
+        .status-badge{padding:0.25rem 0.75rem;border-radius:20px;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px}
+        .badge-confirmed{background:#d4edda;color:#155724}
+        .badge-pending{background:#fff3cd;color:#856404}
+        .badge-completed{background:#d1ecf1;color:#0c5460}
+        .badge-cancelled{background:#f8d7da;color:#721c24}
+        .badge-declined{background:#f8d7da;color:#721c24}
+        .appointment-details{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem}
+        .detail-item{display:flex;flex-direction:column;gap:0.25rem}
+        .detail-label{font-size:0.8rem;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:0.3px}
+        .detail-value{font-size:0.9rem;color:#333;font-weight:500}
+        .appointment-actions{display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap}
+        .action-btn{padding:0.5rem 1rem;border-radius:6px;border:1px solid;font-size:0.8rem;font-weight:500;text-decoration:none;display:inline-flex;align-items:center;gap:0.5rem;cursor:pointer;transition:all 0.2s ease}
+        .btn-outline{background:white;color:#0d6efd;border-color:#0d6efd}
+        .btn-outline:hover{background:#0d6efd;color:white}
+        .btn-danger{background:#dc3545;color:white;border-color:#dc3545}
+        .btn-danger:hover{background:#c82333;border-color:#bd2130}
+        @media(max-width:768px){
+            .app-container{padding:1rem}
+            .dashboard-grid{grid-template-columns:1fr;gap:1rem}
+            .dashboard-card{padding:1rem}
+            .card-info h4{font-size:1.5rem}
+            .appointment-details{grid-template-columns:1fr}
+            .appointment-actions{flex-direction:column}
         }
-        
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Poppins', sans-serif;
-        }
-        
-        body {
-            background: linear-gradient(135deg, #f5f7fa 0%, #e4edf5 100%);
-            color: #333;
-            line-height: 1.6;
-            min-height: 100vh;
-            padding-bottom: 40px;
-        }
-        
-        .header {
-            background: linear-gradient(135deg, var(--primary-blue) 0%, #003a75 100%);
-            color: white;
-            padding: 15px 0;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-        }
-
-        .logo-container {
-            display: flex;
-            align-items: center;
-            gap: 55px;
-        }
-        
-        .logo {
-            width: 60px;
-            height: 60px;
-        
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            
-        }
-        
-        .logo i {
-            font-size: 30px;
-            color: var(--primary-blue);
-        }
-        
-        .user-avatar {
-            width: 50px;
-            height: 50px;
-            border-radius: 50%;
-            background: black;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 500;
-            font-family: 'Poppins', sans-serif;
-        }
-        
-        .app-container {
-            max-width: 1200px;
-            margin: 30px auto;
-            padding: 0 20px;
-        }
-        
-        .welcome-card {
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
-            padding: 25px;
-            margin-bottom: 30px;
-            background: linear-gradient(to right, white 60%, #f0f8ff 100%);
-            border-left: 5px solid var(--primary-blue);
-        }
-        
-        .appointment-summary {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        
-        .summary-card {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            transition: transform 0.3s, box-shadow 0.3s;
-            border-bottom: 4px solid transparent;
-        }
-        
-        .summary-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
-        }
-        
-        .summary-card.pending {
-            border-color: #FFC107;
-        }
-        
-        .summary-card.upcoming {
-            border-color: #2196F3;
-        }
-        
-        .summary-card.completed {
-            border-color: #28a745;
-        }
-        
-        .summary-card.cancelled {
-            border-color: #dc3545;
-        }
-        
-        .summary-icon {
-            width: 60px;
-            height: 60px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.8rem;
-        }
-        
-        .pending .summary-icon {
-            background: rgba(255, 193, 7, 0.1);
-            color: #FFC107;
-        }
-        
-        .upcoming .summary-icon {
-            background: rgba(33, 150, 243, 0.1);
-            color: #2196F3;
-        }
-        
-        .completed .summary-icon {
-            background: rgba(40, 167, 69, 0.1);
-            color: var(--primary-green);
-        }
-        
-        .cancelled .summary-icon {
-            background: rgba(220, 53, 69, 0.1);
-            color: #dc3545;
-        }
-
-        .declined .summary-icon {
-            background: rgba(220, 53, 69, 0.1);
-            color: #c53030;
-        }
-        
-        .summary-content {
-            flex: 1;
-        }
-        
-        .summary-number {
-            font-size: 1.8rem;
-            font-weight: 700;
-            line-height: 1;
-            color: var(--primary-dark);
-        }
-        
-        .summary-title {
-            font-size: 0.95rem;
-            color: #777;
-        }
-        
-        .tab-container {
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
-            margin-bottom: 30px;
-            overflow: hidden;
-        }
-        
-        .nav-tabs {
-            display: flex;
-            border-bottom: 1px solid #eee;
-            padding: 0 20px;
-            background: #f8f9fa;
-        }
-        
-        .nav-tabs .nav-link {
-            padding: 15px 25px;
-            border: none;
-            border-radius: 0;
-            font-weight: 500;
-            color: #777;
-            position: relative;
-            transition: all 0.3s;
-        }
-        
-        .nav-tabs .nav-link.active {
-            color: var(--primary-blue);
-            font-weight: 600;
-        }
-        
-        .nav-tabs .nav-link.active::after {
-            content: '';
-            position: absolute;
-            bottom: -1px;
-            left: 0;
-            width: 100%;
-            height: 3px;
-            background: var(--primary-blue);
-            border-radius: 3px 3px 0 0;
-        }
-        
-        .tab-content {
-            padding: 25px;
-        }
-        
-        /* Modern Table Styles */
-        .appointments-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-        }
-        
-        .appointments-table thead {
-            background: linear-gradient(to right, var(--primary-blue), #1a6dca);
-            color: white;
-        }
-        
-        .appointments-table th {
-            padding: 16px 20px;
-            text-align: left;
-            font-weight: 500;
-            border-right: 1px solid rgba(255,255,255,0.1);
-        }
-        
-        .appointments-table th:last-child {
-            border-right: none;
-        }
-        
-        .appointments-table tbody tr {
-            background: white;
-            transition: all 0.2s;
-        }
-        
-        .appointments-table tbody tr:hover {
-            background-color: #f8f9fa;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
-        }
-        
-        .appointments-table tbody tr:nth-child(even) {
-            background-color: #f9fbfd;
-        }
-        
-        .appointments-table td {
-            padding: 14px 20px;
-            border-bottom: 1px solid #eee;
-            cursor: pointer;
-        }
-        
-        .appointments-table tr:last-child td {
-            border-bottom: none;
-        }
-        
-        .status-badge {
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            font-weight: 500;
-            display: inline-block;
-        }
-        
-        .badge-pending {
-            background: rgba(255, 193, 7, 0.1);
-            color: #FFC107;
-            border: 1px solid rgba(255, 193, 7, 0.3);
-        }
-        
-        .badge-confirmed {
-            background: rgba(33, 150, 243, 0.1);
-            color: #2196F3;
-            border: 1px solid rgba(33, 150, 243, 0.3);
-        }
-        
-        .badge-completed {
-            background: rgba(40, 167, 69, 0.1);
-            color: var(--primary-green);
-            border: 1px solid rgba(40, 167, 69, 0.3);
-        }
-        
-        .badge-cancelled {
-            background: rgba(220, 53, 69, 0.1);
-            color: #dc3545;
-            border: 1px solid rgba(220, 53, 69, 0.3);
-        }
-
-        .badge-declined {
-            background: rgba(197, 48, 48, 0.1);
-            color: #c53030;
-            border: 1px solid rgba(197, 48, 48, 0.3);
-        }
-        
-        .action-btn {
-            padding: 6px 12px;
-            border-radius: 6px;
-            border: none;
-            font-weight: 500;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        
-        .btn-outline {
-            background: transparent;
-            border: 1px solid var(--primary-blue);
-            color: var(--primary-blue);
-        }
-        
-        .btn-outline:hover {
-            background: rgba(0, 85, 164, 0.1);
-        }
-        
-        .btn-danger {
-            background: #dc3545;
-            color: white;
-        }
-        
-        .btn-danger:hover {
-            background: #bd2130;
-        }
-        
-        /* Off-canvas Styles */
-        .offcanvas-container {
-            position: fixed;
-            top: 0;
-            right: 0;
-            width: 600px;
-            height: 100%;
-            background: white;
-            box-shadow: -5px 0 25px rgba(0,0,0,0.1);
-            z-index: 1050;
-            transform: translateX(100%);
-            transition: transform 0.3s ease-out;
-            overflow-y: auto;
-        }
-        
-        .offcanvas-container.active {
-            transform: translateX(0);
-        }
-        
-        .offcanvas-header {
-            padding: 20px;
-            background: linear-gradient(to right, var(--primary-blue), #1a6dca);
-            color: white;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-        }
-        
-        .offcanvas-body {
-            padding: 25px;
-        }
-        
-        .offcanvas-title {
-            font-size: 1.5rem;
-            margin: 0;
-        }
-        
-        .close-offcanvas {
-            background: transparent;
-            border: none;
-            color: white;
-            font-size: 1.5rem;
-            cursor: pointer;
-        }
-        
-        /* Timeline Styles */
-        .tracking-section {
-            margin: 30px 0;
-            padding-top: 20px;
-            border-top: 1px solid #eee;
-        }
-        
-        .section-title {
-            display: flex;
-            align-items: center;
-            margin-bottom: 20px;
-            color: var(--primary-blue);
-        }
-        
-        .section-title i {
-            margin-right: 10px;
-            font-size: 1.3rem;
-        }
-        
-        .tracking-timeline {
-            position: relative;
-            padding-left: 30px;
-            margin: 25px 0;
-        }
-        
-        .timeline-bar {
-            position: absolute;
-            left: 3px;
-            top: 5px;
-            bottom: 5px;
-            width: 8px;
-            background: #e0e0e0;
-            border-radius: 3px;
-        }
-        
-        .timeline-progress {
-            position: absolute;
-            left: 5px;
-            top: 5px;
-            width: 3px;
-            background: var(--primary-green);
-            border-radius: 3px;
-            transition: height 1s ease;
-        }
-        
-        .timeline-step {
-            position: relative;
-            margin-bottom: 30px;
-            padding-left: 30px;
-        }
-        
-        .step-indicator {
-            position: absolute;
-            left: -5px;
-            top: 0;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background: #e0e0e0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 2;
-            border: 3px solid white;
-        }
-        
-        .step-indicator.active {
-            background: var(--primary-blue);
-            box-shadow: 0 0 0 5px rgba(40, 167, 69, 0.2);
-        }
-        
-        .step-indicator.completed {
-            background: var(--primary-green);
-        }
-        
-        .step-indicator i {
-            color: white;
-            font-size: 0.7rem;
-        }
-        
-        .step-content {
-            background: #f9f9f9;
-            border-radius: 10px;
-            padding: 15px;
-            border-left: 3px solid #e0e0e0;
-        }
-        
-        .step-content.active {
-            background: #e8f5e9;
-            border-left: 3px solid var(--primary-green);
-        }
-        
-        .step-content.completed {
-            background: #f1f8e9;
-            border-left: 3px solid var(--primary-green);
-        }
-        
-        .step-title {
-            font-weight: 600;
-            margin-bottom: 5px;
-            display: flex;
-            align-items: center;
-        }
-        
-        .step-title i {
-            margin-right: 8px;
-            font-size: 1.1rem;
-        }
-        
-        .step-date {
-            font-size: 0.9rem;
-            color: #777;
-            margin-bottom: 5px;
-        }
-        
-        .step-desc {
-            font-size: 0.9rem;
-            color: #555;
-        }
-        
-        .attachments-section {
-            margin-top: 20px;
-            padding-top: 15px;
-            border-top: 1px solid #eee;
-        }
-        
-        .attachment-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 10px;
-        }
-        
-        .attachment-item {
-            display: flex;
-            align-items: center;
-            padding: 8px 15px;
-            background-color: #e9ecef;
-            border-radius: 30px;
-            font-size: 0.9rem;
-            transition: all 0.3s;
-            cursor: pointer;
-        }
-        
-        .attachment-item:hover {
-            background-color: #d1e3ff;
-            transform: translateY(-2px);
-        }
-        
-        .attachment-item i {
-            margin-right: 8px;
-        }
-        
-        .actions {
-            display: flex;
-            gap: 10px;
-            margin-top: 20px;
-            flex-wrap: wrap;
-        }
-        
-        .action-btn {
-            padding: 10px 20px;
-            border-radius: 8px;
-            border: none;
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        
-        .btn-primary {
-            background: var(--primary-blue);
-            color: white;
-            padding: 4px 12px;
-            font-size: 0.8rem;
-            border-radius: 4px;
-            border: none;
-            font-weight: 500;
-            transition: all 0.3s ease;
-            display: inline-flex;
-            align-items: center;
-            gap: 3px;
-            box-shadow: 0 1px 2px rgba(0, 85, 164, 0.15);
-        }
-        
-        .btn-primary:hover {
-            background: #00448a;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(0, 85, 164, 0.3);
-        }
-        
-        .btn-outline {
-            background: transparent;
-            border: 1px solid var(--primary-blue);
-            color: var(--primary-blue);
-        }
-        
-        .btn-outline:hover {
-            background: rgba(0, 85, 164, 0.1);
-        }
-        
-        .btn-danger {
-            background: #dc3545;
-            color: white;
-        }
-        
-        .btn-danger:hover {
-            background: #bd2130;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        }
-        
-        .footer {
-            text-align: center;
-            padding: 25px;
-            color: #777;
-            font-size: 0.9rem;
-            margin-top: 30px;
-        }
-        
-        .empty-state {
-            text-align: center;
-            padding: 40px 20px;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-        }
-        
-        .empty-state .btn-primary {
-            margin-top: 15px;
-            padding: 6px 16px;
-            font-size: 0.85rem;
-        }
-        
-        .empty-state i {
-            font-size: 4rem;
-            color: #e0e0e0;
-            margin-bottom: 20px;
-        }
-        
-        .empty-state h4 {
-            color: #777;
-            margin-bottom: 15px;
-        }
-        
-        /* File Preview Styles */
-        .file-preview-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 15px;
-            margin-top: 15px;
-        }
-        
-        .file-preview-item {
-            position: relative;
-            width: 120px;
-            height: 140px;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
-            transition: all 0.3s;
-            background: #f8f9fa;
-            cursor: pointer;
-        }
-        
-        .file-preview-item:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.15);
-        }
-        
-        .file-preview-thumb {
-            height: 90px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #e9ecef;
-        }
-        
-        .file-preview-thumb img {
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
-        }
-        
-        .file-preview-icon {
-            font-size: 2.5rem;
-        }
-        
-        .file-preview-info {
-            padding: 8px;
-            text-align: center;
-        }
-        
-        .file-name {
-            font-size: 0.75rem;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            color: #495057;
-        }
-        
-        .file-size {
-            font-size: 0.65rem;
-            color: #868e96;
-        }
-        
-        /* Preview Modal */
-        .preview-modal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.8);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 10510 !important;
-            opacity: 0;
-            visibility: hidden;
-            transition: all 0.3s;
-        }
-        
-        .preview-modal.active {
-            opacity: 1;
-            visibility: visible;
-        }
-        
-        .preview-content {
-            background: white;
-            border-radius: 10px;
-            width: 90%;
-            max-width: 900px;
-            max-height: 90vh;
-            overflow: auto;
-            position: relative;
-            z-index: 10511 !important;
-        }
-        
-        .preview-header {
-            padding: 15px 20px;
-            background: #f1f3f5;
-            border-bottom: 1px solid #dee2e6;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .preview-body {
-            padding: 25px;
-            text-align: center;
-        }
-        
-        .preview-iframe {
-            width: 100%;
-            height: 70vh;
-            border: none;
-        }
-        
-        .preview-image {
-            max-width: 100%;
-            max-height: 70vh;
-        }
-        
-        .preview-actions {
-            padding: 15px 20px;
-            background: #f8f9fa;
-            border-top: 1px solid #dee2e6;
-            display: flex;
-            justify-content: space-between;
-        }
-        
-        .unsupported-preview {
-            padding: 40px;
-            text-align: center;
-        }
-        
-        /* Edit Modal Styles */
-        .edit-modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.7);
-            z-index: 3000;
-            overflow: auto;
-            padding: 20px;
-        }
-        .hide-modal-force {
-            display: none !important;
-            z-index: 0 !important;
-        }
-+       .hide-offcanvas-force {
-+           display: none !important;
-+           z-index: 0 !important;
-+       }
-        
-        .edit-modal-content {
-            background: white;
-            border-radius: 15px;
-            max-width: 700px;
-            margin: 40px auto;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-            overflow: hidden;
-        }
-        
-        .edit-modal-header {
-            padding: 20px;
-            background: var(--primary-blue);
-            color: white;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .edit-modal-body {
-            padding: 25px;
-        }
-        
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        .form-label {
-            font-weight: 500;
-            margin-bottom: 8px;
-            color: #444;
-        }
-        
-        .form-control, .form-select {
-            padding: 12px 15px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            font-size: 1rem;
-            transition: all 0.3s;
-        }
-        
-        .form-control:focus, .form-select:focus {
-            border-color: var(--primary-blue);
-            box-shadow: 0 0 0 3px rgba(0, 85, 164, 0.2);
-        }
-        
-        .existing-attachments {
-            background: #f8f9fa;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 20px;
-            border-left: 3px solid var(--primary-blue);
-        }
-        
-        .attachment-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 6px 12px;
-            background: #e9ecef;
-            border-radius: 20px;
-            margin-right: 8px;
-            margin-bottom: 8px;
-            font-size: 0.85rem;
-        }
-        
-        .attachment-badge i {
-            margin-right: 5px;
-        }
-        
-        .attachment-preview {
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        
-        .attachment-preview:hover {
-            color: var(--primary-blue);
-            text-decoration: underline;
-        }
-        
-        .edit-modal-footer {
-            padding: 20px;
-            background: #f8f9fa;
-            border-top: 1px solid #eee;
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
-        }
-        
-        .btn-save {
-            background: var(--primary-blue);
-            color: white;
-            padding: 10px 25px;
-            border-radius: 8px;
-            border: none;
-            font-weight: 500;
-        }
-        
-        .btn-save:hover {
-            background: #00448a;
-        }
-        
-        .btn-cancel {
-            background: #6c757d;
-            color: white;
-            padding: 10px 25px;
-            border-radius: 8px;
-            border: none;
-            font-weight: 500;
-        }
-        
-        .btn-cancel:hover {
-            background: #5a6268;
-        }
-        
-        .attachment-remove {
-            margin-left: 8px;
-            color: #dc3545;
-            cursor: pointer;
-        }
-        
-        .attachment-remove:hover {
-            color: #bd2130;
-        }
-        
-        .offcanvas-backdrop {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            z-index: 1040;
-            opacity: 0;
-            visibility: hidden;
-            transition: all 0.3s;
-        }
-        
-        .offcanvas-backdrop.active {
-            opacity: 1;
-            visibility: visible;
-        }
-        
-        @media (max-width: 768px) {
-            .header .container {
-                flex-direction: column;
-                text-align: center;
-                gap: 15px;
-            }
-            
-            .user-info {
-                justify-content: center;
-            }
-            
-            .actions {
-                flex-direction: column;
-            }
-            
-            .action-btn {
-                width: 100%;
-                justify-content: center;
-            }
-            
-            .nav-tabs {
-                flex-direction: column;
-            }
-            
-            .nav-tabs .nav-link {
-                text-align: center;
-            }
-            
-            .file-preview-container {
-                justify-content: center;
-            }
-            
-            .offcanvas-container {
-                width: 100%;
-            }
-        }
-        .offcanvas-actions .action-btn.btn-sm {
-            padding: 4px 10px;
-            font-size: 0.85rem;
-            border-radius: 4px;
-            gap: 4px;
-        }
-        /* Add custom styles for better dropdowns */
-        .custom-dropdown-btn {
-            background: #fff;
-            border: 1px solid #dee2e6;
-            border-radius: 2rem;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-            padding: 0.7rem 2.2rem 0.7rem 1.2rem;
-            font-size: 1rem;
-            color: #333;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            transition: box-shadow 0.2s, border-color 0.2s;
-        }
-        .custom-dropdown-btn:focus, .custom-dropdown-btn:hover {
-            border-color: #b6d4fe;
-            box-shadow: 0 4px 16px rgba(0,123,255,0.08);
-            color: #0d6efd;
-        }
-        .custom-dropdown-chevron {
-            font-size: 1.2em;
-            margin-left: 0.5em;
-            color: #888;
-            transition: color 0.2s;
-        }
-        .custom-dropdown-btn[aria-expanded="true"] .custom-dropdown-chevron {
-            color: #0d6efd;
-        }
-        .custom-dropdown-menu {
-            display: none;
-            position: absolute;
-            top: 100%;
-            left: 0; /* anchor to the left */
-            right: auto; /* unset the right anchor */
-            margin-top: 0.2rem;
-            min-width: 180px;
-            max-width: 100%; /* keep it inside container */
-            box-sizing: border-box;
-            z-index: 100;
-            border-radius: 1rem;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.10);
-            padding: 0.5rem 0;
-            background: #fff;
-            border: 1px solid #e3e3e3;
-            animation: fadeIn 0.18s;
-            overflow-x: hidden; /* prevents horizontal scroll */
-        }
-
-        .custom-dropdown-menu .dropdown-item {
-            padding: 0.75rem 1.5rem;
-            font-size: 1rem;
-            border-radius: 0.7rem;
-            margin: 0.1rem 0.5rem;
-            transition: background 0.15s, color 0.15s;
-        }
-        .custom-dropdown-menu .dropdown-item.active,
-        .custom-dropdown-menu .dropdown-item:active,
-        .custom-dropdown-menu .dropdown-item:hover {
-            background: #e7f1ff;
-        }
-        /* Custom Dropdown Styles */
-        .custom-dropdown { position: relative; display: inline-block; }
-        .custom-dropdown-btn {
-            background: #fff;
-            border: 1px solid #dee2e6;
-            border-radius: 2rem;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-            padding: 0.7rem 2.2rem 0.7rem 1.2rem;
-            font-size: 1rem;
-            color: #333;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            cursor: pointer;
-            min-width: 180px;
-            transition: box-shadow 0.2s, border-color 0.2s, color 0.2s;
-            outline: none;
-        }
-        .custom-dropdown-btn:focus, .custom-dropdown-btn.open {
-            border-color: #b6d4fe;
-            box-shadow: 0 4px 16px rgba(0,123,255,0.08);
-            color: #0d6efd;
-        }
-        .custom-dropdown-chevron {
-            font-size: 1.2em;
-            margin-left: auto;
-            color: #888;
-            transition: transform 0.2s, color 0.2s;
-        }
-        .custom-dropdown-btn.open .custom-dropdown-chevron {
-            color: #0d6efd;
-            transform: rotate(180deg);
-        }
-        .custom-dropdown-menu {
-            display: none;
-            position: absolute;
-            right: 0;
-            left: auto;
-            top: 100%;
-            margin-top: 0.2rem;
-            min-width: 180px;
-            max-width: 260px;
-            box-sizing: border-box;
-            z-index: 100;
-            border-radius: 1rem;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.10);
-            padding: 0.5rem 0;
-            background: #fff;
-            border: 1px solid #e3e3e3;
-            animation: fadeIn 0.18s;
-        }
-        .custom-dropdown.open .custom-dropdown-menu {
-            display: block;
-        }
-        .custom-dropdown-menu .custom-dropdown-item {
-            padding: 0.75rem 1.5rem;
-            padding-left: 2.2rem; /* more space on the left to account for the checkmark */
-            font-size: 1rem;
-            border-radius: 0.7rem;
-            margin: 0.1rem 0.5rem;
-            color: #333;
-            background: none;
-            border: none;
-            width: calc(100% - 1rem); /* respect horizontal margins */
-            text-align: left;
-            display: flex;
-            align-items: center;
-            gap: 0.7rem;
-            cursor: pointer;
-            transition: background 0.15s, color 0.15s;
-            position: relative;
-            box-sizing: border-box;
-        }
-
-        .custom-dropdown-menu .custom-dropdown-item.selected,
-        .custom-dropdown-menu .custom-dropdown-item:active,
-        .custom-dropdown-menu .custom-dropdown-item:hover {
-            background: #e7f1ff;
-            color: #0d6efd;
-        }
-        .custom-dropdown-check {
-            color: #0d6efd;
-            font-size: 1.1em;
-            width: 1rem;
-            visibility: hidden;
-            display: inline-block;
-            flex-shrink: 0;
-            position: absolute;
-            left: 1.2rem; /* position it independently */
-        }
-
-        .custom-dropdown-item.selected .custom-dropdown-check {
-            visibility: visible;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(-8px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        /* Add to your existing styles */
-        .alert-danger {
-            background-color: #f8d7da;
-            border-color: #f5c6cb;
-            color: #721c24;
-        }
-        .alert-danger .bg-white {
-            background-color: rgba(255,255,255,0.9) !important;
-        }
-
-
     </style>
-    <!-- Add this in the <head> or before </body> -->
-    <script src="shared_appointments.js"></script>
+    
+    <!-- Load non-critical CSS asynchronously -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="userStyles/userAppointment.css?v=<?= time() ?>">
+    
+    <!-- Preconnect to external domains -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 </head>
 <body>
     <!-- Header -->
@@ -1396,9 +312,7 @@ foreach ($appointments as $app) {
         <div class="container">
             <div class="d-flex justify-content-between align-items-center">
                 <div class="logo-container">
-                    <div class="logo">
-                       <img src="images/logooo.png" alt="Company Logo" style="width:150px; height:auto; border-radius: 15px;">
-                    </div>
+                    <img src="images/logooo.png" alt="Solano Mayor's Office Logo" width="85" height="45" style="width: 105px; height: 45px;" loading="eager">
                     <div>
                         <h3 class="mb-0">Solano Mayor's Office</h3>
                         <p class="mb-0">Online Appointment System</p>
@@ -1406,12 +320,30 @@ foreach ($appointments as $app) {
                 </div>
                 
                 <!-- Profile Section -->
-                <div class="d-flex align-items-center">
-                    <div class="user-avatar me-2"><?= $user_initials ?></div>
-                    <div>
-                        <div class="text-white fw-bold"><?= htmlspecialchars($username) ?></div>
-                        <div class="text-white-50">Resident</div>
-                    </div>
+                <div class="dropdown profile-dropdown">
+                    <button class="btn btn-link text-white d-flex align-items-center p-0 profile-btn" type="button" id="profileDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-person-circle me-2" style="font-size: 1.5rem;"></i>
+                        <div class="me-2">
+                            <div class="text-white fw-bold"><?= htmlspecialchars($username) ?></div>
+                        </div>
+                        <i class="bi bi-chevron-down text-white-50 dropdown-arrow"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end profile-menu" aria-labelledby="profileDropdown">
+                        <li class="dropdown-header">
+                            <div class="d-flex align-items-center">
+                                <i class="bi bi-person-circle me-2" style="font-size: 1.25rem; color: #6c757d;"></i>
+                                <div>
+                                    <div class="fw-bold"><?= htmlspecialchars($username) ?></div>
+                                    <small class="text-muted">Resident</small>
+                                </div>
+                            </div>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="userSide.php"><i class="bi bi-calendar-plus me-2 text-primary"></i>Set Appointment</a></li>
+                        <li><a class="dropdown-item" href="userProfile.php"><i class="bi bi-person me-2 text-info"></i>My Profile</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item text-danger" href="../logout.php"><i class="bi bi-box-arrow-right me-2"></i>Logout</a></li>
+                    </ul>
                 </div>
             </div>
         </div>
@@ -1493,8 +425,8 @@ foreach ($appointments as $app) {
         <div class="welcome-card">
             <div class="d-flex flex-column flex-md-row align-items-center">
                 <div class="flex-grow-1 mb-3 mb-md-0">
-                    <h2 class="mb-2">Your Appointments</h2>
-                    <p class="mb-0">Manage your scheduled appointments and track their progress</p>
+                    <h4 class="mb-2">Your Appointments</h4>
+                    <p class="mb-0 text-muted">Manage your scheduled appointments and track their progress</p>
                 </div>
                 <a href="userSide.php#calendar" class="btn btn-primary">
                     <i class="bi bi-plus-circle"></i>Book New Appointment
@@ -1502,115 +434,151 @@ foreach ($appointments as $app) {
             </div>
         </div>
         
-        <!-- Summary Cards -->
-        <div class="appointment-summary">
-            <div class="summary-card pending">
-                <div class="summary-icon">
-                    <i class="bi bi-clock-history"></i>
+        <!-- Dashboard Grid -->
+        <div class="dashboard-grid" id="dashboardGrid">
+            <div class="dashboard-card" data-category="upcoming" style="min-height: 120px;">
+                <div class="card-header">
+                    <div class="card-icon upcoming">
+                        <i class="bi bi-calendar-check"></i>
+                    </div>
+                    <div class="card-info">
+                        <h4><?= $counts['upcoming'] ?></h4>
+                        <p>Upcoming</p>
+                    </div>
                 </div>
-                <div class="summary-content">
-                    <div class="summary-number"><?= $counts['pending'] ?></div>
-                    <div class="summary-title">Pending Requests</div>
-                </div>
-            </div>
-            
-            <div class="summary-card upcoming">
-                <div class="summary-icon">
-                    <i class="bi bi-calendar-check"></i>
-                </div>
-                <div class="summary-content">
-                    <div class="summary-number"><?= $counts['upcoming'] ?></div>
-                    <div class="summary-title">Upcoming Appointments</div>
-                </div>
-            </div>
-            
-            <div class="summary-card completed">
-                <div class="summary-icon">
-                    <i class="bi bi-check-circle"></i>
-                </div>
-                <div class="summary-content">
-                    <div class="summary-number"><?= $counts['completed'] ?></div>
-                    <div class="summary-title">Completed</div>
-                </div>
-            </div>
-            
-            <div class="summary-card cancelled">
-                <div class="summary-icon">
-                    <i class="bi bi-x-circle"></i>
-                </div>
-                <div class="summary-content">
-                    <div class="summary-number"><?= $counts['cancelled'] ?></div>
-                    <div class="summary-title">Cancelled</div>
+                <div class="card-arrow">
+                    <i class="bi bi-chevron-right"></i>
                 </div>
             </div>
 
-            <div class="summary-card declined">
-                <div class="summary-icon">
-                    <i class="bi bi-x-octagon"></i>
+            <div class="dashboard-card pending-card" data-category="pending" style="min-height: 120px;">
+                <div class="card-header">
+                    <div class="card-icon">
+                        <i class="bi bi-clock-history"></i>
+                    </div>
+                    <div class="card-info">
+                        <h4><?= $counts['pending'] ?></h4>
+                        <p>Pending</p>
+                    </div>
                 </div>
-                <div class="summary-content">
-                    <div class="summary-number"><?= $counts['declined'] ?></div>
-                    <div class="summary-title">Declined</div>
+                <div class="card-arrow">
+                    <i class="bi bi-chevron-right"></i>
+                </div>
+            </div>
+
+            <div class="dashboard-card history-card" data-category="history" style="min-height: 120px;">
+                <div class="card-header">
+                    <div class="card-icon">
+                        <i class="bi bi-clock-history"></i>
+                    </div>
+                    <div class="card-info">
+                        <h4><?= $counts['completed'] + $counts['cancelled'] + $counts['declined'] ?></h4>
+                        <p>History</p>
+                    </div>
+                </div>
+                <div class="card-arrow">
+                    <i class="bi bi-chevron-right"></i>
+                </div>
+            </div>
+
+            <div class="dashboard-card lapsed-card" data-category="lapsed" style="min-height: 120px;">
+                <div class="card-header">
+                    <div class="card-icon">
+                        <i class="bi bi-exclamation-triangle"></i>
+                    </div>
+                    <div class="card-info">
+                        <h4><?= $counts['lapsed'] ?></h4>
+                        <p>Lapsed</p>
+                    </div>
+                </div>
+                <div class="card-arrow">
+                    <i class="bi bi-chevron-right"></i>
                 </div>
             </div>
         </div>
         
-        <!-- Appointment Tabs -->
-        <div class="tab-container">
-            <ul class="nav nav-tabs" id="appointmentTabs" role="tablist">
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link <?= $active_tab === 'upcoming' ? 'active' : '' ?>" id="upcoming-tab" data-bs-toggle="tab" data-bs-target="#upcoming" type="button" role="tab">Upcoming Appointments</button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link <?= $active_tab === 'pending' ? 'active' : '' ?>" id="pending-tab" data-bs-toggle="tab" data-bs-target="#pending" type="button" role="tab">Pending Requests</button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link <?= $active_tab === 'lapsed' ? 'active' : '' ?>" id="lapsed-tab" data-bs-toggle="tab" data-bs-target="#lapsed" type="button" role="tab">Lapsed Pending</button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link <?= $active_tab === 'history' ? 'active' : '' ?>" id="history-tab" data-bs-toggle="tab" data-bs-target="#history" type="button" role="tab">History</button>
-                </li>
-            </ul>
-            <div class="tab-content" id="appointmentTabsContent">
+        <!-- Appointment Sections -->
+        <div class="appointment-sections" style="display: none;">
+            <div class="section-content" id="appointmentContent">
                 <!-- Upcoming Appointments Tab -->
                 <div class="tab-pane fade <?= $active_tab === 'upcoming' ? 'show active' : '' ?>" id="upcoming" role="tabpanel">
+                    <div class="d-flex align-items-center mb-4" style="gap: 0.5rem; margin-bottom:2rem!important;">
+                        <span class="me-1" style="font-size:1.2rem;color:#6c757d;"><i class="bi bi-sort-down"></i></span>
+                        <div class="custom-dropdown" id="upcomingSortDropdown">
+                            <button type="button" class="custom-dropdown-btn" id="upcomingSortBtn" aria-haspopup="listbox" aria-expanded="false">
+                                Sort: <span id="upcomingSortLabel">Nearest Date</span>
+                                <i class="bi bi-chevron-down custom-dropdown-chevron"></i>
+                            </button>
+                            <div class="custom-dropdown-menu" role="listbox">
+                                <button class="custom-dropdown-item upcoming-sort-option selected" type="button" data-value="date-asc">
+                                    <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Nearest Date
+                                </button>
+                                <button class="custom-dropdown-item upcoming-sort-option" type="button" data-value="date-desc">
+                                    <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Farthest Date
+                                </button>
+                                <button class="custom-dropdown-item upcoming-sort-option" type="button" data-value="created-desc">
+                                    <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Latest Requested
+                                </button>
+                                <button class="custom-dropdown-item upcoming-sort-option" type="button" data-value="created-asc">
+                                    <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Oldest Requested
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                     <?php if($counts['upcoming'] > 0): ?>
-                        <div class="table-responsive">
-                            <table class="appointments-table">
-                                <thead>
-                                    <tr>
-                                        <th>Reference ID</th>
-                                        <th>Service</th>
-                                        <th>Date</th>
-                                        <th>Time</th>
-                                        <th>Status</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php 
-                                    // Upcoming Appointments: sort by requested (created_at) DESC
-                                    $upcomingApps = array_filter($appointments, function($app) { return $app['status'] === 'Confirmed'; });
-                                    usort($upcomingApps, function($a, $b) {
-                                        return strtotime($b['requested']) - strtotime($a['requested']);
-                                    });
-                                    foreach ($upcomingApps as $app): ?>
-                                            <tr class="appointment-row" 
-                                                data-appointment='<?= htmlspecialchars(json_encode($app), ENT_QUOTES, 'UTF-8') ?>'>
-                                                <td><?= $app['app_id'] ?></td>
-                                                <td><?= $app['service'] ?></td>
-                                                <td><?= $app['date'] ?></td>
-                                                <td><?= $app['time'] ?></td>
-                                                <td><span class="status-badge badge-confirmed"><?= $app['status'] ?></span></td>
-                                                <td>
-                                                    <button class="action-btn btn-outline view-details-btn">
-                                                        <i class="bi bi-eye me-1"></i> View
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
+                        <div id="upcomingAppointmentsContainer">
+                            <?php 
+                            // Upcoming Appointments: sort by appointment date ASC (nearest first)
+                            $upcomingApps = array_filter($appointments, function($app) { return $app['status'] === 'Confirmed'; });
+                            usort($upcomingApps, function($a, $b) {
+                                $dateTimeA = strtotime($a['date'] . ' ' . $a['time']);
+                                $dateTimeB = strtotime($b['date'] . ' ' . $b['time']);
+                                return $dateTimeA - $dateTimeB;
+                            });
+                            foreach ($upcomingApps as $app): ?>
+                                <div class="appointment-card" 
+                                     data-appointment='<?= htmlspecialchars(json_encode($app), ENT_QUOTES, 'UTF-8') ?>'
+                                     data-date="<?= strtotime($app['date'] . ' ' . $app['time']) ?>"
+                                     data-requested="<?= strtotime($app['requested']) ?>"
+                                     data-status="<?= $app['status'] ?>">
+                                <div class="appointment-header">
+                                    <div>
+                                        <div class="appointment-ref"><?= $app['app_id'] ?></div>
+                                        <div class="appointment-title"><?= $app['service'] ?></div>
+                                    </div>
+                                    <span class="status-badge badge-confirmed"><?= $app['status'] ?></span>
+                                </div>
+                                <div class="appointment-details">
+                                    <div class="detail-item">
+                                        <div class="detail-label">Date</div>
+                                        <div class="detail-value"><?= $app['date'] ?></div>
+                                    </div>
+                                    <div class="detail-item">
+                                        <div class="detail-label">Time</div>
+                                        <div class="detail-value"><?= $app['time'] ?></div>
+                                    </div>
+                                    <div class="detail-item">
+                                        <div class="detail-label">Service</div>
+                                        <div class="detail-value"><?= $app['service'] ?></div>
+                                    </div>
+                                    <div class="detail-item">
+                                        <div class="detail-label">Attendees</div>
+                                        <div class="detail-value"><?= $app['attendees'] ?></div>
+                                    </div>
+                                </div>
+                                <div class="appointment-actions">
+                                    <button class="action-btn btn-outline view-details-btn">
+                                        <i class="bi bi-eye"></i> View Details
+                                    </button>
+                                    <a href="reschedule.php?id=<?= $app['id'] ?>" class="action-btn btn-outline">
+                                        <i class="bi bi-calendar-event"></i> Reschedule
+                                    </a>
+                                    <button class="action-btn btn-danger cancel-appointment-btn" data-app-id="<?= $app['id'] ?>">
+                                        <i class="bi bi-x-circle"></i> Cancel
+                                    </button>
+                                </div>
+                                </div>
+                            <?php endforeach; ?>
                         </div>
                     <?php else: ?>
                         <div class="empty-state">
@@ -1626,65 +594,91 @@ foreach ($appointments as $app) {
                 
                 <!-- Pending Requests Tab -->
                 <div class="tab-pane fade <?= $active_tab === 'pending' ? 'show active' : '' ?>" id="pending" role="tabpanel">
-                    <?php if($counts['pending'] > 0): ?>
-                        <div class="d-flex align-items-center mb-4" style="gap: 0.5rem; margin-bottom:2rem!important;"> <!-- mb-4 for more space -->
-                            <span class="me-1" style="font-size:1.2rem;color:#6c757d;"><i class="bi bi-sort-down"></i></span>
-                            <div class="custom-dropdown" id="pendingSortDropdown">
-                                <button type="button" class="custom-dropdown-btn" id="pendingSortBtn" aria-haspopup="listbox" aria-expanded="false">
-                                    Sort: <span id="pendingSortLabel">Latest to Oldest</span>
-                                    <i class="bi bi-chevron-down custom-dropdown-chevron"></i>
+                    <div class="d-flex align-items-center mb-4" style="gap: 0.5rem; margin-bottom:2rem!important;">
+                        <span class="me-1" style="font-size:1.2rem;color:#6c757d;"><i class="bi bi-sort-down"></i></span>
+                        <div class="custom-dropdown" id="pendingSortDropdown">
+                            <button type="button" class="custom-dropdown-btn" id="pendingSortBtn" aria-haspopup="listbox" aria-expanded="false">
+                                Sort: <span id="pendingSortLabel">Nearest Date</span>
+                                <i class="bi bi-chevron-down custom-dropdown-chevron"></i>
+                            </button>
+                            <div class="custom-dropdown-menu" role="listbox">
+                                <button class="custom-dropdown-item pending-sort-option selected" type="button" data-value="date-asc">
+                                    <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Nearest Date
                                 </button>
-                                <div class="custom-dropdown-menu" role="listbox">
-                                    <button class="custom-dropdown-item pending-sort-option selected" type="button" data-value="desc">
-                                        <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Latest to Oldest
-                                    </button>
-                                    <button class="custom-dropdown-item pending-sort-option" type="button" data-value="asc">
-                                        <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Oldest to Latest
-                                    </button>
-                                </div>
+                                <button class="custom-dropdown-item pending-sort-option" type="button" data-value="date-desc">
+                                    <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Farthest Date
+                                </button>
+                                <button class="custom-dropdown-item pending-sort-option" type="button" data-value="created-desc">
+                                    <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Latest Requested
+                                </button>
+                                <button class="custom-dropdown-item pending-sort-option" type="button" data-value="created-asc">
+                                    <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Oldest Requested
+                                </button>
                             </div>
                         </div>
-                        <div class="table-responsive">
-                            <table class="appointments-table" id="pendingRequestsTable">
-                                <thead>
-                                    <tr>
-                                        <th>Reference ID</th>
-                                        <th>Service</th>
-                                        <th>Date</th>
-                                        <th>Time</th>
-                                        <th>Status</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php 
-                                    // Pending Requests: sort by requested (created_at) DESC
-                                    $pendingApps = array_filter($appointments, function($app) {
-                                        if ($app['status'] !== 'Pending Approval') return false;
-                                        $appointmentDateTime = strtotime($app['date'] . ' ' . $app['time']);
-                                        return $appointmentDateTime >= time();
-                                    });
-                                    usort($pendingApps, function($a, $b) {
-                                        return strtotime($b['requested']) - strtotime($a['requested']);
-                                    });
-                                    foreach ($pendingApps as $app): ?>
-                                            <tr class="appointment-row" 
-                                                data-appointment='<?= htmlspecialchars(json_encode($app), ENT_QUOTES, 'UTF-8') ?>'
-                                                data-requested="<?= strtotime($app['requested']) ?>">
-                                                <td><?= $app['app_id'] ?></td>
-                                                <td><?= $app['service'] ?></td>
-                                                <td><?= $app['date'] ?></td>
-                                                <td><?= $app['time'] ?></td>
-                                                <td><span class="status-badge badge-pending"><?= $app['status'] ?></span></td>
-                                                <td>
-                                                    <button class="action-btn btn-outline view-details-btn">
-                                                        <i class="bi bi-eye me-1"></i> View
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
+                    </div>
+                    <?php if($counts['pending'] > 0): ?>
+                        <div id="pendingRequestsContainer">
+                            <?php 
+                            // Pending Requests: sort by appointment date ASC (nearest first)
+                            $pendingApps = array_filter($appointments, function($app) {
+                                if ($app['status'] !== 'Pending Approval') return false;
+                                $appointmentDateTime = strtotime($app['date'] . ' ' . $app['time']);
+                                return $appointmentDateTime >= time();
+                            });
+                            usort($pendingApps, function($a, $b) {
+                                $dateTimeA = strtotime($a['date'] . ' ' . $a['time']);
+                                $dateTimeB = strtotime($b['date'] . ' ' . $b['time']);
+                                return $dateTimeA - $dateTimeB;
+                            });
+                            foreach ($pendingApps as $app): ?>
+                                <div class="appointment-card" 
+                                     data-appointment='<?= htmlspecialchars(json_encode($app), ENT_QUOTES, 'UTF-8') ?>'
+                                     data-requested="<?= strtotime($app['requested']) ?>"
+                                     data-date="<?= strtotime($app['date'] . ' ' . $app['time']) ?>"
+                                     data-status="<?= $app['status'] ?>">
+                                    <div class="appointment-header">
+                                        <div>
+                                            <div class="appointment-ref"><?= $app['app_id'] ?></div>
+                                            <div class="appointment-title"><?= $app['service'] ?></div>
+                                        </div>
+                                        <span class="status-badge badge-pending"><?= $app['status'] ?></span>
+                                    </div>
+                                    <div class="appointment-details">
+                                        <div class="detail-item">
+                                            <div class="detail-label">Date</div>
+                                            <div class="detail-value"><?= $app['date'] ?></div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">Time</div>
+                                            <div class="detail-value"><?= $app['time'] ?></div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">Service</div>
+                                            <div class="detail-value"><?= $app['service'] ?></div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">Attendees</div>
+                                            <div class="detail-value"><?= $app['attendees'] ?></div>
+                                        </div>
+                                    </div>
+                                    <div class="appointment-actions">
+                                        <button class="action-btn btn-outline view-details-btn">
+                                            <i class="bi bi-eye"></i> View Details
+                                        </button>
+                                        <button class="action-btn btn-outline edit-request-btn" 
+                                                data-appointment-id="<?= $app['id'] ?>"
+                                                data-purpose="<?= htmlspecialchars($app['purpose']) ?>"
+                                                data-attendees="<?= htmlspecialchars($app['attendees']) ?>"
+                                                data-attachments='<?= htmlspecialchars(json_encode($app['attachments']), ENT_QUOTES) ?>'>
+                                            <i class="bi bi-pencil"></i> Edit Request
+                                        </button>
+                                        <button class="action-btn btn-danger cancel-appointment-btn" data-app-id="<?= $app['id'] ?>">
+                                            <i class="bi bi-x-circle"></i> Cancel Request
+                                        </button>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
                         </div>
                         
                         <!-- What happens next information -->
@@ -1725,6 +719,29 @@ foreach ($appointments as $app) {
                 
                 <!-- Lapsed Pending Tab -->
                 <div class="tab-pane fade <?= $active_tab === 'lapsed' ? 'show active' : '' ?>" id="lapsed" role="tabpanel">
+                    <div class="d-flex align-items-center mb-4" style="gap: 0.5rem; margin-bottom:2rem!important;">
+                        <span class="me-1" style="font-size:1.2rem;color:#6c757d;"><i class="bi bi-sort-down"></i></span>
+                        <div class="custom-dropdown" id="lapsedSortDropdown">
+                            <button type="button" class="custom-dropdown-btn" id="lapsedSortBtn" aria-haspopup="listbox" aria-expanded="false">
+                                Sort: <span id="lapsedSortLabel">Most Recent</span>
+                                <i class="bi bi-chevron-down custom-dropdown-chevron"></i>
+                            </button>
+                            <div class="custom-dropdown-menu" role="listbox">
+                                <button class="custom-dropdown-item lapsed-sort-option selected" type="button" data-value="date-desc">
+                                    <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Most Recent
+                                </button>
+                                <button class="custom-dropdown-item lapsed-sort-option" type="button" data-value="date-asc">
+                                    <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Oldest First
+                                </button>
+                                <button class="custom-dropdown-item lapsed-sort-option" type="button" data-value="created-desc">
+                                    <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Latest Requested
+                                </button>
+                                <button class="custom-dropdown-item lapsed-sort-option" type="button" data-value="created-asc">
+                                    <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Oldest Requested
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                     <?php
                     // Lapsed Pending: Pending Approval with date/time in the past
                     $lapsedApps = array_filter($appointments, function($app) {
@@ -1733,36 +750,55 @@ foreach ($appointments as $app) {
                         return $appointmentDateTime < time();
                     });
                     if (count($lapsedApps) > 0): ?>
-                        <div class="table-responsive">
-                            <table class="appointments-table">
-                                <thead>
-                                    <tr>
-                                        <th>Reference ID</th>
-                                        <th>Service</th>
-                                        <th>Date</th>
-                                        <th>Time</th>
-                                        <th>Status</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($lapsedApps as $app): ?>
-                                        <tr class="appointment-row" 
-                                            data-appointment='<?= htmlspecialchars(json_encode($app), ENT_QUOTES, 'UTF-8') ?>'>
-                                            <td><?= $app['app_id'] ?></td>
-                                            <td><?= $app['service'] ?></td>
-                                            <td><?= $app['date'] ?></td>
-                                            <td><?= $app['time'] ?></td>
-                                            <td><span class="status-badge badge-pending">Lapsed Pending</span></td>
-                                            <td>
-                                                <button class="action-btn btn-outline view-details-btn">
-                                                    <i class="bi bi-eye me-1"></i> View
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
+                        <div id="lapsedAppointmentsContainer">
+                            <?php 
+                            // Sort lapsed appointments by date DESC (most recent first)
+                            usort($lapsedApps, function($a, $b) {
+                                $dateTimeA = strtotime($a['date'] . ' ' . $a['time']);
+                                $dateTimeB = strtotime($b['date'] . ' ' . $b['time']);
+                                return $dateTimeB - $dateTimeA;
+                            });
+                            foreach ($lapsedApps as $app): ?>
+                                <div class="appointment-card" 
+                                     data-appointment='<?= htmlspecialchars(json_encode($app), ENT_QUOTES, 'UTF-8') ?>'
+                                     data-date="<?= strtotime($app['date'] . ' ' . $app['time']) ?>"
+                                     data-requested="<?= strtotime($app['requested']) ?>"
+                                     data-status="<?= $app['status'] ?>">
+                                <div class="appointment-header">
+                                    <div>
+                                        <div class="appointment-ref"><?= $app['app_id'] ?></div>
+                                        <div class="appointment-title"><?= $app['service'] ?></div>
+                                    </div>
+                                    <span class="status-badge badge-pending">Lapsed Pending</span>
+                                </div>
+                                <div class="appointment-details">
+                                    <div class="detail-item">
+                                        <div class="detail-label">Date</div>
+                                        <div class="detail-value"><?= $app['date'] ?></div>
+                                    </div>
+                                    <div class="detail-item">
+                                        <div class="detail-label">Time</div>
+                                        <div class="detail-value"><?= $app['time'] ?></div>
+                                    </div>
+                                    <div class="detail-item">
+                                        <div class="detail-label">Service</div>
+                                        <div class="detail-value"><?= $app['service'] ?></div>
+                                    </div>
+                                    <div class="detail-item">
+                                        <div class="detail-label">Attendees</div>
+                                        <div class="detail-value"><?= $app['attendees'] ?></div>
+                                    </div>
+                                </div>
+                                <div class="appointment-actions">
+                                    <button class="action-btn btn-outline view-details-btn">
+                                        <i class="bi bi-eye"></i> View Details
+                                    </button>
+                                    <button class="action-btn btn-danger cancel-appointment-btn" data-app-id="<?= $app['id'] ?>">
+                                        <i class="bi bi-x-circle"></i> Cancel Request
+                                    </button>
+                                </div>
+                                </div>
+                            <?php endforeach; ?>
                         </div>
                     <?php else: ?>
                         <div class="empty-state">
@@ -1775,26 +811,75 @@ foreach ($appointments as $app) {
                 
                 <!-- History Tab -->
                 <div class="tab-pane fade <?= $active_tab === 'history' ? 'show active' : '' ?>" id="history" role="tabpanel">
-                    <div class="d-flex align-items-center mb-4" style="gap: 0.5rem; margin-bottom:2rem!important;">
-                        <span class="me-1" style="font-size:1.2rem;color:#6c757d;"><i class="bi bi-funnel"></i></span>
-                        <div class="custom-dropdown" id="historyFilterDropdown">
-                            <button type="button" class="custom-dropdown-btn" id="historyFilterBtn" aria-haspopup="listbox" aria-expanded="false">
-                                Show: <span id="historyFilterLabel">All</span>
-                                <i class="bi bi-chevron-down custom-dropdown-chevron"></i>
-                            </button>
-                            <div class="custom-dropdown-menu" role="listbox">
-                                <button class="custom-dropdown-item history-filter-option selected" type="button" data-value="all">
-                                    <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>All
+                    <!-- Always show dropdowns -->
+                    <div class="mb-4" style="margin-bottom:2rem!important;">
+                        <div class="d-flex align-items-center mb-3" style="gap: 0.5rem;">
+                            <span class="me-1" style="font-size:1.2rem;color:#6c757d;"><i class="bi bi-funnel"></i></span>
+                            <div class="custom-dropdown" id="historyFilterDropdown">
+                                <button type="button" class="custom-dropdown-btn" id="historyFilterBtn" aria-haspopup="listbox" aria-expanded="false">
+                                    Show: <span id="historyFilterLabel">All</span>
+                                    <i class="bi bi-chevron-down custom-dropdown-chevron"></i>
                                 </button>
-                                <button class="custom-dropdown-item history-filter-option" type="button" data-value="Completed">
-                                    <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Completed
+                                <div class="custom-dropdown-menu" role="listbox">
+                                    <button class="custom-dropdown-item history-filter-option selected" type="button" data-value="all">
+                                        <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>All
+                                    </button>
+                                    <button class="custom-dropdown-item history-filter-option" type="button" data-value="Completed">
+                                        <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Completed
+                                    </button>
+                                    <button class="custom-dropdown-item history-filter-option" type="button" data-value="Cancelled">
+                                        <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Cancelled
+                                    </button>
+                                    <button class="custom-dropdown-item history-filter-option" type="button" data-value="Declined">
+                                        <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Declined
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center" style="gap: 0.5rem; margin-top: 0.5rem; ">
+                            <span class="me-1" style="font-size:1.2rem;color:#6c757d;"><i class="bi bi-sort-down"></i></span>
+                            <div class="custom-dropdown" id="historySortDropdown" style="display: block !important; visibility: visible !important;">
+                                <button type="button" class="custom-dropdown-btn" id="historySortBtn" aria-haspopup="listbox" aria-expanded="false" style="background: #fff; border: 1px solid #dee2e6; padding: 0.5rem 1rem; border-radius: 2rem;">
+                                    Sort: <span id="historySortLabel">Most Recent</span>
+                                    <i class="bi bi-chevron-down custom-dropdown-chevron"></i>
                                 </button>
-                                <button class="custom-dropdown-item history-filter-option" type="button" data-value="Cancelled">
-                                    <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Cancelled
+                                <div class="custom-dropdown-menu" role="listbox">
+                                    <button class="custom-dropdown-item history-sort-option selected" type="button" data-value="date-desc">
+                                        <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Most Recent
+                                    </button>
+                                    <button class="custom-dropdown-item history-sort-option" type="button" data-value="date-asc">
+                                        <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Oldest First
+                                    </button>
+                                    <button class="custom-dropdown-item history-sort-option" type="button" data-value="created-desc">
+                                        <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Latest Requested
+                                    </button>
+                                    <button class="custom-dropdown-item history-sort-option" type="button" data-value="created-asc">
+                                        <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Oldest Requested
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center" style="gap: 0.5rem; margin-top: 0.5rem; ">
+                            <span class="me-1" style="font-size:1.2rem;color:#6c757d;"><i class="bi bi-sort-down"></i></span>
+                            <div class="custom-dropdown" id="historySortDropdown" style="display: block !important; visibility: visible !important;">
+                                <button type="button" class="custom-dropdown-btn" id="historySortBtn" aria-haspopup="listbox" aria-expanded="false" style="background: #fff; border: 1px solid #dee2e6; padding: 0.5rem 1rem; border-radius: 2rem;">
+                                    Sort: <span id="historySortLabel">Most Recent</span>
+                                    <i class="bi bi-chevron-down custom-dropdown-chevron"></i>
                                 </button>
-                                <button class="custom-dropdown-item history-filter-option" type="button" data-value="Declined">
-                                    <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Declined
-                                </button>
+                                <div class="custom-dropdown-menu" role="listbox">
+                                    <button class="custom-dropdown-item history-sort-option selected" type="button" data-value="date-desc">
+                                        <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Most Recent
+                                    </button>
+                                    <button class="custom-dropdown-item history-sort-option" type="button" data-value="date-asc">
+                                        <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Oldest First
+                                    </button>
+                                    <button class="custom-dropdown-item history-sort-option" type="button" data-value="created-desc">
+                                        <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Latest Requested
+                                    </button>
+                                    <button class="custom-dropdown-item history-sort-option" type="button" data-value="created-asc">
+                                        <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Oldest Requested
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1803,43 +888,58 @@ foreach ($appointments as $app) {
                         return $app['status'] === 'Completed' || $app['status'] === 'Cancelled' || $app['status'] === 'Declined';
                     });
                     if (count($historyApps) > 0): ?>
-                        <div class="table-responsive mb-4 history-table" data-status="all">
-                            <table class="appointments-table" id="historyAppointmentsTable">
-                                <thead id="historyTableHead">
-                                    <tr>
-                                        <th>Reference ID</th>
-                                        <th>Service</th>
-                                        <th>Date</th>
-                                        <th>Time</th>
-                                        <th>Status</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($historyApps as $app): ?>
-                                        <tr class="appointment-row" data-appointment='<?= htmlspecialchars(json_encode($app), ENT_QUOTES, 'UTF-8') ?>' data-status="<?= $app['status'] ?>">
-                                            <td><?= $app['app_id'] ?></td>
-                                            <td><?= $app['service'] ?></td>
-                                            <td><?= $app['date'] ?></td>
-                                            <td><?= $app['time'] ?></td>
-                                            <td>
-                                                <?php if ($app['status'] === 'Completed'): ?>
-                                                    <span class="status-badge badge-completed">Completed</span>
-                                                <?php elseif ($app['status'] === 'Cancelled'): ?>
-                                                    <span class="status-badge badge-cancelled">Cancelled</span>
-                                                <?php elseif ($app['status'] === 'Declined'): ?>
-                                                    <span class="status-badge badge-declined">Declined</span>
-                                                <?php endif; ?>
-                                            </td>
-                                            <td>
-                                                <button class="action-btn btn-outline view-details-btn">
-                                                    <i class="bi bi-eye me-1"></i> View
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
+                        <div id="historyAppointmentsContainer" data-status="all">
+                            <?php 
+                            // Sort history appointments by date DESC (most recent first)
+                            usort($historyApps, function($a, $b) {
+                                $dateTimeA = strtotime($a['date'] . ' ' . $a['time']);
+                                $dateTimeB = strtotime($b['date'] . ' ' . $b['time']);
+                                return $dateTimeB - $dateTimeA;
+                            });
+                            foreach ($historyApps as $app): ?>
+                                <div class="appointment-card" 
+                                     data-appointment='<?= htmlspecialchars(json_encode($app), ENT_QUOTES, 'UTF-8') ?>'
+                                     data-status="<?= $app['status'] ?>"
+                                     data-date="<?= strtotime($app['date'] . ' ' . $app['time']) ?>"
+                                     data-requested="<?= strtotime($app['requested']) ?>">
+                                    <div class="appointment-header">
+                                        <div>
+                                            <div class="appointment-ref"><?= $app['app_id'] ?></div>
+                                            <div class="appointment-title"><?= $app['service'] ?></div>
+                                        </div>
+                                        <?php if ($app['status'] === 'Completed'): ?>
+                                            <span class="status-badge badge-completed">Completed</span>
+                                        <?php elseif ($app['status'] === 'Cancelled'): ?>
+                                            <span class="status-badge badge-cancelled">Cancelled</span>
+                                        <?php elseif ($app['status'] === 'Declined'): ?>
+                                            <span class="status-badge badge-declined">Declined</span>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="appointment-details">
+                                        <div class="detail-item">
+                                            <div class="detail-label">Date</div>
+                                            <div class="detail-value"><?= $app['date'] ?></div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">Time</div>
+                                            <div class="detail-value"><?= $app['time'] ?></div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">Service</div>
+                                            <div class="detail-value"><?= $app['service'] ?></div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">Attendees</div>
+                                            <div class="detail-value"><?= $app['attendees'] ?></div>
+                                        </div>
+                                    </div>
+                                    <div class="appointment-actions">
+                                        <button class="action-btn btn-outline view-details-btn">
+                                            <i class="bi bi-eye"></i> View Details
+                                        </button>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
                         </div>
                     <?php else: ?>
                         <div class="empty-state">
@@ -1854,6 +954,44 @@ foreach ($appointments as $app) {
                         <p>There are no appointments matching your selected filter.</p>
                     </div>
                 </div>
+            </div>
+        </div>
+        
+        <!-- Selected Category Display -->
+        <div class="selected-category-section" id="selectedCategorySection" style="display: none;">
+            <div class="category-header d-flex justify-content-between align-items-center mb-4">
+                <div class="d-flex align-items-center">
+                    <button class="back-btn" id="backToDashboard">
+                        <i class="bi bi-arrow-left"></i> Back to Dashboard
+                    </button>
+                    <h5 class="category-title ms-3" id="categoryTitle"></h5>
+                </div>
+                <div class="d-flex align-items-center" style="gap: 0.5rem;">
+                    <span class="me-1" style="font-size:1.2rem;color:#6c757d;"><i class="bi bi-sort-down"></i></span>
+                    <div class="custom-dropdown" id="categorySortDropdown">
+                        <button type="button" class="custom-dropdown-btn" id="categorySortBtn" aria-haspopup="listbox" aria-expanded="false">
+                            Sort: <span id="categorySortLabel">Most Recent</span>
+                            <i class="bi bi-chevron-down custom-dropdown-chevron"></i>
+                        </button>
+                        <div class="custom-dropdown-menu" role="listbox">
+                            <button class="custom-dropdown-item category-sort-option selected" type="button" data-value="date-desc">
+                                <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Most Recent
+                            </button>
+                            <button class="custom-dropdown-item category-sort-option" type="button" data-value="date-asc">
+                                <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Oldest First
+                            </button>
+                            <button class="custom-dropdown-item category-sort-option" type="button" data-value="created-desc">
+                                <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Latest Requested
+                            </button>
+                            <button class="custom-dropdown-item category-sort-option" type="button" data-value="created-asc">
+                                <span class="custom-dropdown-check"><i class="bi bi-check2"></i></span>Oldest Requested
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="category-appointments" id="categoryAppointments">
+                <!-- Appointments will be loaded here -->
             </div>
         </div>
         
@@ -2026,19 +1164,61 @@ foreach ($appointments as $app) {
       </div>
     </div>
 
+    <!-- Load JavaScript and test availability -->
+    <script src="shared_appointments.js"></script>
+    <script>
+        // Debug: Check what's available after script load
+        console.log('Script loaded. Available functions:', {
+            setupAppointmentSorting: typeof setupAppointmentSorting,
+            setupCustomDropdown: typeof setupCustomDropdown,
+            sortAppointments: typeof sortAppointments,
+            window_setupAppointmentSorting: typeof window.setupAppointmentSorting,
+            sharedAppointments: typeof window.sharedAppointments
+        });
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, checking functions again...');
+            
+            // Try multiple ways to access the function
+            let sortingFunction = null;
+            if (typeof setupAppointmentSorting === 'function') {
+                sortingFunction = setupAppointmentSorting;
+                console.log('Found setupAppointmentSorting as global function');
+            } else if (window.setupAppointmentSorting) {
+                sortingFunction = window.setupAppointmentSorting;
+                console.log('Found setupAppointmentSorting on window object');
+            } else if (window.sharedAppointments && window.sharedAppointments.setupAppointmentSorting) {
+                sortingFunction = window.sharedAppointments.setupAppointmentSorting;
+                console.log('Found setupAppointmentSorting in sharedAppointments object');
+            }
+            
+            if (sortingFunction) {
+                console.log('Initializing sorting...');
+                sortingFunction();
+                
+                // Setup tab switching
+                document.querySelectorAll('[data-bs-toggle="tab"]').forEach(tab => {
+                    tab.addEventListener('shown.bs.tab', () => {
+                        setTimeout(() => sortingFunction(), 100);
+                    });
+                });
+            } else {
+                console.error('No sorting function found anywhere');
+            }
+            
             // DOM Elements
             const offcanvas = document.getElementById('appointmentDetailsCanvas');
             const offcanvasBody = document.getElementById('offcanvasBody');
             const offcanvasBackdrop = document.getElementById('offcanvasBackdrop');
             const closeOffcanvas = document.getElementById('closeOffcanvas');
             const viewDetailsBtns = document.querySelectorAll('.view-details-btn');
-            const appointmentRows = document.querySelectorAll('.appointment-row');
+            const appointmentCards = document.querySelectorAll('.appointment-card');
             
             // Function to open off-canvas with appointment details
            function openAppointmentDetails(appointment) {
+    console.log('Opening appointment details for:', appointment);
     const offcanvasBody = document.getElementById('offcanvasBody');
     
     // Build HTML for decline reason
@@ -2244,29 +1424,263 @@ foreach ($appointments as $app) {
                 offcanvasBackdrop.classList.add('active');
             }
             
-            // Open off-canvas when clicking on row or view button
-            function handleAppointmentRowClick(row) {
-                const appointmentData = JSON.parse(row.getAttribute('data-appointment'));
-                openAppointmentDetails(appointmentData);
+            // Open off-canvas when clicking on card or view button
+            function handleAppointmentCardClick(card) {
+                try {
+                    const appointmentDataStr = card.getAttribute('data-appointment');
+                    console.log('Appointment data string:', appointmentDataStr);
+                    
+                    if (!appointmentDataStr) {
+                        console.error('No appointment data found on card');
+                        return;
+                    }
+                    
+                    // Decode HTML entities back to proper JSON
+                    const decodedDataStr = appointmentDataStr.replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+                    console.log('Decoded appointment data string:', decodedDataStr);
+                    
+                    const appointmentData = JSON.parse(decodedDataStr);
+                    console.log('Parsed appointment data:', appointmentData);
+                    openAppointmentDetails(appointmentData);
+                } catch (error) {
+                    console.error('Error parsing appointment data:', error);
+                    console.log('Card element:', card);
+                }
             }
             
-            // Add event listeners to appointment rows
-            appointmentRows.forEach(row => {
-                row.addEventListener('click', function(e) {
-                    // Don't trigger if clicked on action button
-                    if (!e.target.closest('.action-btn')) {
-                        handleAppointmentRowClick(this);
+            // Add event listeners to appointment cards
+            function attachCardEventListeners(container = document) {
+                const cards = container.querySelectorAll('.appointment-card:not([data-listeners-attached])');
+                const viewBtns = container.querySelectorAll('.view-details-btn:not([data-listener-attached])');
+                
+                cards.forEach(card => {
+                    card.addEventListener('click', function(e) {
+                        // Don't trigger if clicked on action button
+                        if (!e.target.closest('.action-btn')) {
+                            handleAppointmentCardClick(this);
+                        }
+                    });
+                    card.setAttribute('data-listeners-attached', 'true');
+                });
+                
+                console.log('Found', viewBtns.length, 'new view details buttons');
+                
+                viewBtns.forEach(btn => {
+                    btn.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('View details button clicked');
+                        const card = this.closest('.appointment-card');
+                        console.log('Found card:', card);
+                        if (card) {
+                            handleAppointmentCardClick(card);
+                        } else {
+                            console.error('No appointment card found for this button');
+                        }
+                    });
+                    btn.setAttribute('data-listener-attached', 'true');
+                });
+            }
+            
+            // Dashboard card interactions
+            function initDashboardCards() {
+                const dashboardCards = document.querySelectorAll('.dashboard-card');
+                const dashboardGrid = document.querySelector('.dashboard-grid');
+                const selectedCategorySection = document.getElementById('selectedCategorySection');
+                const categoryTitle = document.getElementById('categoryTitle');
+                const categoryAppointments = document.getElementById('categoryAppointments');
+                const backBtn = document.getElementById('backToDashboard');
+                const appointmentSections = document.querySelector('.appointment-sections');
+
+                dashboardCards.forEach(card => {
+                    card.addEventListener('click', function() {
+                        // Remove selected class from all cards
+                        dashboardCards.forEach(c => c.classList.remove('selected'));
+                        // Add selected class to clicked card
+                        this.classList.add('selected');
+                        
+                        const category = this.getAttribute('data-category');
+                        showCategoryAppointments(category);
+                    });
+                });
+
+                backBtn.addEventListener('click', function() {
+                    // Remove selected class from all cards when going back
+                    dashboardCards.forEach(c => c.classList.remove('selected'));
+                    selectedCategorySection.style.display = 'none';
+                    dashboardGrid.style.display = 'grid';
+                    appointmentSections.style.display = 'none';
+                });
+
+                function showCategoryAppointments(category) {
+                    // Hide dashboard grid
+                    dashboardGrid.style.display = 'none';
+                    appointmentSections.style.display = 'none';
+                    
+                    // Show selected category section
+                    selectedCategorySection.style.display = 'block';
+                    
+                    // Smooth scroll to appointments on all devices
+                    setTimeout(() => {
+                        selectedCategorySection.scrollIntoView({ 
+                            behavior: 'smooth', 
+                            block: 'start' 
+                        });
+                    }, 100);
+                    
+                    // Update title
+                    const titles = {
+                        'upcoming': 'Upcoming Appointments',
+                        'pending': 'Pending Requests', 
+                        'history': 'Appointment History',
+                        'lapsed': 'Lapsed Requests'
+                    };
+                    categoryTitle.textContent = titles[category] || 'Appointments';
+                    
+                    // Load appointments for category
+                    loadCategoryAppointments(category);
+                    
+                    // Initialize category sort dropdown after showing the section
+                    setTimeout(() => {
+                        if (window.sharedAppointments && window.sharedAppointments.setupCustomDropdown) {
+                            window.sharedAppointments.setupCustomDropdown('categorySortDropdown', 'categorySortBtn', 'category-sort-option', 'categorySortLabel', function(value, text) {
+                                const container = document.getElementById('categoryAppointments');
+                                if (container && window.sharedAppointments.sortAppointments) {
+                                    window.sharedAppointments.sortAppointments(container, value);
+                                }
+                            });
+                        }
+                    }, 100);
+                }
+
+                function loadCategoryAppointments(category) {
+                    let appointmentsHTML = '';
+                    
+                    <?php
+                    // Generate JavaScript arrays for each category
+                    $upcomingApps = array_filter($appointments, function($app) { return $app['status'] === 'Confirmed'; });
+                    $pendingApps = array_filter($appointments, function($app) { return $app['status'] === 'Pending Approval'; });
+                    $historyApps = array_filter($appointments, function($app) { return in_array($app['status'], ['Completed', 'Cancelled', 'Declined']); });
+                    $lapsedApps = array_filter($appointments, function($app) { return $app['status'] === 'Lapsed'; });
+                    ?>
+                    
+                    const appointmentData = {
+                        upcoming: <?= json_encode(array_values($upcomingApps)) ?>,
+                        pending: <?= json_encode(array_values($pendingApps)) ?>,
+                        history: <?= json_encode(array_values($historyApps)) ?>,
+                        lapsed: <?= json_encode(array_values($lapsedApps)) ?>
+                    };
+                    
+                    const appointments = appointmentData[category] || [];
+                    
+                    if (appointments.length === 0) {
+                        appointmentsHTML = `
+                            <div class="empty-state">
+                                <i class="bi bi-folder-x"></i>
+                                <h4>No ${category} appointments</h4>
+                                <p>You don't have any ${category} appointments at the moment.</p>
+                            </div>
+                        `;
+                    } else {
+                        appointments.forEach(app => {
+                            const statusClass = app.status === 'Pending Approval' ? 'badge-pending' :
+                                              app.status === 'Confirmed' ? 'badge-confirmed' :
+                                              app.status === 'Completed' ? 'badge-completed' :
+                                              app.status === 'Cancelled' ? 'badge-cancelled' :
+                                              app.status === 'Declined' ? 'badge-declined' : 'badge-cancelled';
+                            
+                            const escapedAppData = JSON.stringify(app).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+                            appointmentsHTML += `
+                                <div class="appointment-card" data-appointment='${escapedAppData}'>
+                                    <div class="appointment-header">
+                                        <div>
+                                            <div class="appointment-ref">${app.app_id}</div>
+                                            <div class="appointment-title">${app.service}</div>
+                                        </div>
+                                        <span class="status-badge ${statusClass}">${app.status}</span>
+                                    </div>
+                                    <div class="appointment-details">
+                                        <div class="detail-item">
+                                            <div class="detail-label">Date</div>
+                                            <div class="detail-value">${app.date}</div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">Time</div>
+                                            <div class="detail-value">${app.time}</div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">Service</div>
+                                            <div class="detail-value">${app.service}</div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">Attendees</div>
+                                            <div class="detail-value">${app.attendees}</div>
+                                        </div>
+                                    </div>
+                                    <div class="appointment-actions">
+                                        <button class="action-btn btn-outline view-details-btn">
+                                            <i class="bi bi-eye"></i> View Details
+                                        </button>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                    }
+                    
+                    categoryAppointments.innerHTML = appointmentsHTML;
+                    
+                    // Re-attach event listeners for new cards in the specific container
+                    attachCardEventListeners(categoryAppointments);
+                    
+                    // Add data attributes for sorting
+                    const cards = categoryAppointments.querySelectorAll('.appointment-card');
+                    cards.forEach((card, index) => {
+                        const appointmentData = appointments[index];
+                        if (appointmentData) {
+                            card.setAttribute('data-date', new Date(appointmentData.date + ' ' + appointmentData.time).getTime());
+                            card.setAttribute('data-requested', new Date(appointmentData.requested).getTime());
+                            card.setAttribute('data-status', appointmentData.status);
+                        }
+                    });
+                }
+            }
+
+            // Initial attachment of event listeners
+            attachCardEventListeners();
+            initDashboardCards();
+            
+            // Initialize sorting functionality when appointment sections are visible
+            function initializeSorting() {
+                if (window.sharedAppointments && window.sharedAppointments.setupAppointmentSorting) {
+                    console.log('Initializing appointment sorting...');
+                    window.sharedAppointments.setupAppointmentSorting();
+                } else if (window.setupAppointmentSorting) {
+                    console.log('Using global setupAppointmentSorting...');
+                    window.setupAppointmentSorting();
+                } else {
+                    console.warn('No sorting function available');
+                }
+            }
+            
+            // Initialize sorting immediately for any visible sections
+            setTimeout(initializeSorting, 500);
+            
+            // Initialize sorting when sections become visible
+            const observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                    if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+                        const target = mutation.target;
+                        if (target.classList.contains('appointment-sections') && target.style.display !== 'none') {
+                            setTimeout(initializeSorting, 100);
+                        }
                     }
                 });
             });
             
-            // Add event listeners to view buttons
-            viewDetailsBtns.forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const row = this.closest('.appointment-row');
-                    handleAppointmentRowClick(row);
-                });
-            });
+            const appointmentSectionsEl = document.querySelector('.appointment-sections');
+            if (appointmentSectionsEl) {
+                observer.observe(appointmentSectionsEl, { attributes: true });
+            }
             
             // Close off-canvas
             function closeOffcanvasPanel() {
@@ -2276,6 +1690,45 @@ foreach ($appointments as $app) {
             
             closeOffcanvas.addEventListener('click', closeOffcanvasPanel);
             offcanvasBackdrop.addEventListener('click', closeOffcanvasPanel);
+            
+            // Add swipe gesture support for mobile
+            let startX = 0;
+            let currentX = 0;
+            let isDragging = false;
+            
+            offcanvas.addEventListener('touchstart', function(e) {
+                startX = e.touches[0].clientX;
+                isDragging = true;
+            });
+            
+            offcanvas.addEventListener('touchmove', function(e) {
+                if (!isDragging) return;
+                currentX = e.touches[0].clientX;
+                const diffX = currentX - startX;
+                
+                // Only allow swipe right (positive direction)
+                if (diffX > 0) {
+                    const translateX = Math.min(diffX, 300); // Max 300px drag
+                    offcanvas.style.transform = `translateX(${translateX}px)`;
+                    offcanvas.style.transition = 'none';
+                }
+            });
+            
+            offcanvas.addEventListener('touchend', function(e) {
+                if (!isDragging) return;
+                isDragging = false;
+                
+                const diffX = currentX - startX;
+                
+                // Reset transform and transition
+                offcanvas.style.transform = '';
+                offcanvas.style.transition = '';
+                
+                // If swiped more than 100px to the right, close the off-canvas
+                if (diffX > 100) {
+                    closeOffcanvasPanel();
+                }
+            });
             
             // File preview functionality
             const previewModal = document.getElementById('previewModal');
@@ -2653,6 +2106,18 @@ foreach ($appointments as $app) {
       if (tabParam) {
         const validTabs = ['upcoming', 'pending', 'lapsed', 'history'];
         if (validTabs.includes(tabParam)) {
+          // Show appointment sections when tab parameter is present
+          const appointmentSections = document.querySelector('.appointment-sections');
+          if (appointmentSections) {
+            appointmentSections.style.display = 'block';
+            // Initialize sorting after showing sections
+            setTimeout(() => {
+              if (window.sharedAppointments && window.sharedAppointments.setupAppointmentSorting) {
+                window.sharedAppointments.setupAppointmentSorting();
+              }
+            }, 100);
+          }
+          
           const targetTab = document.querySelector(`[data-bs-target="#${tabParam}"]`);
           if (targetTab) {
             targetTab.click();
@@ -2663,20 +2128,20 @@ foreach ($appointments as $app) {
       // Auto-open appointment details if show_appointment parameter is present
       const showAppointmentId = urlParams.get('show_appointment');
       if (showAppointmentId) {
-        // Find the appointment row with the matching ID
-        const appointmentRows = document.querySelectorAll('.appointment-row');
-        let targetRow = null;
+        // Find the appointment card with the matching ID
+        const appointmentCards = document.querySelectorAll('.appointment-card');
+        let targetCard = null;
         
-        appointmentRows.forEach(row => {
-          const appointmentData = JSON.parse(row.getAttribute('data-appointment'));
+        appointmentCards.forEach(card => {
+          const appointmentData = JSON.parse(card.getAttribute('data-appointment'));
           if (appointmentData.id == showAppointmentId) {
-            targetRow = row;
+            targetCard = card;
           }
         });
         
-        if (targetRow) {
+        if (targetCard) {
           // Trigger the view details button click
-          const viewButton = targetRow.querySelector('.view-details-btn');
+          const viewButton = targetCard.querySelector('.view-details-btn');
           if (viewButton) {
             setTimeout(() => {
               viewButton.click();
@@ -2731,39 +2196,20 @@ foreach ($appointments as $app) {
     );
     </script>
     <script>
+    // Consolidated modal handling for better performance
     document.addEventListener('DOMContentLoaded', function() {
-        var offcanvas = document.getElementById('appointmentDetailsCanvas');
-        var offcanvasBackdrop = document.getElementById('offcanvasBackdrop');
-        var cancelModal = document.getElementById('cancelConfirmModal');
+        const cancelModal = document.getElementById('cancelConfirmModal');
+        const offcanvas = document.getElementById('appointmentDetailsCanvas');
+        const offcanvasBackdrop = document.getElementById('offcanvasBackdrop');
+        
         if (cancelModal) {
             cancelModal.addEventListener('hidden.bs.modal', function () {
-                offcanvas.classList.remove('hide-offcanvas-force');
-                offcanvasBackdrop.classList.remove('hide-offcanvas-force');
-            });
-        }
-    });
-    </script>
-    <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        document.getElementById('cancelConfirmModal').addEventListener('hidden.bs.modal', function () {
-            document.querySelectorAll('.hide-offcanvas-force').forEach(function(el) {
-                el.classList.remove('hide-offcanvas-force');
-            });
-        });
-    });
-    </script>
-    <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        var cancelModal = document.getElementById('cancelConfirmModal');
-        var offcanvas = document.getElementById('appointmentDetailsCanvas');
-        var offcanvasBackdrop = document.getElementById('offcanvasBackdrop');
-        if (cancelModal) {
-            cancelModal.addEventListener('hidden.bs.modal', function () {
-                // Remove the forced hiding class from all elements
-                document.querySelectorAll('.hide-offcanvas-force').forEach(function(el) {
-                    el.classList.remove('hide-offcanvas-force');
-                });
-                // Explicitly show the offcanvas and backdrop if they exist
+                // Remove forced hiding classes
+                document.querySelectorAll('.hide-offcanvas-force').forEach(el => 
+                    el.classList.remove('hide-offcanvas-force')
+                );
+                
+                // Restore offcanvas visibility
                 if (offcanvas) {
                     offcanvas.classList.add('active');
                     offcanvas.style.display = '';
@@ -2777,8 +2223,24 @@ foreach ($appointments as $app) {
             });
         }
     });
-
-
+    
+    // Performance monitoring
+    if ('performance' in window) {
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                const perfData = performance.getEntriesByType('navigation')[0];
+                const lcp = performance.getEntriesByType('largest-contentful-paint')[0];
+                
+                console.log('Performance Metrics:');
+                console.log('DOM Content Loaded:', perfData.domContentLoadedEventEnd - perfData.domContentLoadedEventStart, 'ms');
+                console.log('Load Complete:', perfData.loadEventEnd - perfData.loadEventStart, 'ms');
+                if (lcp) console.log('LCP:', lcp.startTime, 'ms');
+                
+                // Send to analytics if needed
+                // analytics.track('page_performance', { lcp: lcp?.startTime, dcl: perfData.domContentLoadedEventEnd });
+            }, 0);
+        });
+    }
     </script>
 </body>
 </html>

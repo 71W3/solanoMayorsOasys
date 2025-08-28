@@ -1,341 +1,494 @@
-<?php
-include "connect.php";
+    <?php
+    include "connect.php";
 
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $schedId = $_POST['sched_id'];
+        $note = $_POST['note'];
 
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $schedId = $_POST['sched_id'];
-    $note = $_POST['note'];
-
-    $stmt = $con->prepare("UPDATE schedule SET note = ? WHERE sched_id = ?");
-    $stmt->bind_param("si", $note, $schedId);
-    if ($stmt->execute()) {
-        header("Location: schedule.php?success=1");
-    } else {
-        echo "Error saving note.";
+        $stmt = $con->prepare("UPDATE schedule SET note = ? WHERE sched_id = ?");
+        $stmt->bind_param("si", $note, $schedId);
+        if ($stmt->execute()) {
+            header("Location: schedule.php?success=1");
+        } else {
+            echo "Error saving note.";
+        }
     }
-}
 
-// Fetch all scheduled appointments
-$appointments = [];
-$result = $con->query("
-    SELECT
-        s.sched_id,
-        a.id AS appointment_id,
-        a.purpose,
-        a.attendees,
-        a.date,
-        a.time,
-        u.name AS resident_name,
-        s.note,
-        NULL AS is_mayor_appointment,
-        'regular' AS appointment_type
-    FROM schedule s
-    JOIN appointments a ON s.app_id = a.id
-    JOIN users u ON a.user_id = u.id
-    
-    UNION ALL
-    
-    SELECT
-        s.sched_id,
-        NULL AS appointment_id,
-        m.appointment_title AS purpose,
-        1 AS attendees,
-        m.date,
-        m.time,
-        'Mayor' AS resident_name,
-        CONCAT('Mayor\'s Appointment: ', m.description) AS note,
-        1 AS is_mayor_appointment,
-        'mayor' AS appointment_type
-    FROM schedule s
-    JOIN mayors_appointment m ON s.mayor_id = m.id
-");
-
-if ($result) {
-    while ($row = $result->fetch_assoc()) {
-        $appointments[] = $row;
-    }
-} else {
-    error_log("Database query failed: " . $con->error);
+    // Fetch all scheduled appointments
     $appointments = [];
-}
-?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Schedule Calendar</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
-    <style>
-        <?php include 'dashboard-style.css'; ?>
+    $result = $con->query("
+        SELECT
+            s.sched_id,
+            a.id AS appointment_id,
+            a.purpose,
+            a.attendees,
+            a.date,
+            a.time,
+            u.name AS resident_name,
+            s.note,
+            NULL AS is_mayor_appointment,
+            'regular' AS appointment_type
+        FROM schedule s
+        JOIN appointments a ON s.app_id = a.id
+        JOIN users u ON a.user_id = u.id
+        
+        UNION ALL
+        
+        SELECT
+            s.sched_id,
+            NULL AS appointment_id,
+            m.appointment_title AS purpose,
+            1 AS attendees,
+            m.date,
+            m.time,
+            'Mayor' AS resident_name,
+            CONCAT('Mayor\'s Appointment: ', m.description) AS note,
+            1 AS is_mayor_appointment,
+            'mayor' AS appointment_type
+        FROM schedule s
+        JOIN mayors_appointment m ON s.mayor_id = m.id
+    ");
 
-        body {
-            display: flex;
-            min-height: 100vh;
-            margin: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            $appointments[] = $row;
         }
-
-        .wrapper {
-            
-            flex-grow: 1;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .main-content {
-            flex-grow: 1;
-            background-color: #f8f9fa;
-        }
-
-        .content-container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-
-        #calendar {
-            max-width: 100%;
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            padding: 20px;
-        }
-
-        .fc-event {
-            border: none;
-            font-size: 0.9em;
-            padding: 3px 5px;
-            margin-bottom: 2px;
-        }
-
-        .fc-event.regular-appointment {
-            background-color: #0055a4;
-            border-left: 4px solid #003366;
-        }
-
-        .fc-event.mayor-appointment {
-            background-color: #ff6b35;
-            border-left: 4px solid #cc4c2c;
-        }
-
-        .fc-event-title {
-            font-weight: 500;
-            white-space: normal;
-        }
-
-        .legend {
-            display: flex;
-            justify-content: center;
-            margin-top: 20px;
-            gap: 20px;
-        }
-
-        .legend-item {
-            display: flex;
-            align-items: center;
-            font-size: 0.9em;
-        }
-
-        .legend-color {
-            width: 20px;
-            height: 20px;
-            border-radius: 3px;
-            margin-right: 8px;
-        }
-
-        .fc-daygrid-event-dot {
-            display: none;
-        }
-
-        .fc-more-link {
-            font-weight: bold;
-            background: #f0f0f0;
-            border-radius: 3px;
-            padding: 2px 4px;
-        }
-    </style>
-</head>
-<body>
-<?php include 'sidebar.php'; ?>
-<div class="wrapper">
-    <div class="main-content">
-        <div class="content-container">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <h2 class="mb-0">Appointment Schedule</h2>
-                <p class="text-muted mb-0">View and manage daily appointments</p>
+    } else {
+        error_log("Database query failed: " . $con->error);
+        $appointments = [];
+    }
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Schedule Calendar - SOLAR Admin</title>
+        <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet">
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="adminStyles/schedule.css">
+    </head>
+    <body>
+        <div class="overlay" id="overlay"></div>
+        
+        <div class="wrapper">
+            <!-- Sidebar -->
+            <div class="sidebar" id="sidebar">
+                <div class="sidebar-header">
+                    <div class="logo">
+                        <div class="logo-icon">
+                            <i class="bi bi-sun"></i>
+                        </div>
+                        <div>
+                            <h5>SOLAR Admin</h5>
+                            <div class="version">Municipality of Solano</div>
+                        </div>
+                    </div>
+                </div>
+                <nav class="sidebar-nav">
+                    <a href="adminPanel.php">
+                        <i class="bi bi-house"></i>
+                        Dashboard
+                    </a>
+                    <a href="appointment.php">
+                        <i class="bi bi-calendar-check"></i>
+                        Appointments
+                    </a>
+                    <a href="schedule.php" class="active">
+                        <i class="bi bi-calendar"></i>
+                        Schedule
+                    </a>
+                    <a href="#">
+                        <i class="bi bi-graph-up"></i>
+                        Reports
+                    </a>
+                    <a href="#">
+                        <i class="bi bi-gear"></i>
+                        Settings
+                    </a>
+                    <a href="#">
+                        <i class="bi bi-box-arrow-right"></i>
+                        Logout
+                    </a>
+                </nav>
             </div>
 
-            <div id="calendar"></div>
-            
-            <div class="legend">
-                <div class="legend-item">
-                    <div class="legend-color" style="background-color: #0055a4;"></div>
-                    <span>Regular Appointments</span>
+            <div class="main-content">
+                <!-- Topbar -->
+                <div class="topbar">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center">
+                            <button class="mobile-menu-btn d-md-none me-3" id="mobileMenuBtn">
+                                <i class="bi bi-list"></i>
+                            </button>
+                            <div>
+                                <h1 class="page-title">Schedule Calendar</h1>
+                                <p class="text-muted mb-0 small d-none d-sm-block">View and manage appointment schedules</p>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center">
+                            <span class="text-muted me-2 d-none d-sm-inline">Admin</span>
+                            <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 36px; height: 36px;">
+                                <i class="bi bi-person-fill"></i>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background-color: #ff6b35;"></div>
-                    <span>Mayor's Appointments</span>
+
+                <div class="content">
+                    <?php if (isset($_GET['success']) && $_GET['success'] == 1): ?>
+                        <div class="success-alert">
+                            <i class="bi bi-check-circle me-2"></i>Note saved successfully!
+                        </div>
+                    <?php endif; ?>
+
+                    <!-- Stats Grid -->
+                    <div class="stats-grid">
+                        <div class="stats-card">
+                            <div class="stats-card-content">
+                                <div class="stats-icon">
+                                    <i class="bi bi-calendar-day"></i>
+                                </div>
+                                <div class="stats-info">
+                                    <div class="stats-number" id="todayCount">0</div>
+                                    <div class="stats-label">Today</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="stats-card">
+                            <div class="stats-card-content">
+                                <div class="stats-icon" style="background: rgba(5, 150, 105, 0.1); color: var(--success);">
+                                    <i class="bi bi-calendar-week"></i>
+                                </div>
+                                <div class="stats-info">
+                                    <div class="stats-number" id="weekCount">0</div>
+                                    <div class="stats-label">This Week</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="stats-card">
+                            <div class="stats-card-content">
+                                <div class="stats-icon" style="background: rgba(37, 99, 235, 0.1); color: var(--accent);">
+                                    <i class="bi bi-calendar-month"></i>
+                                </div>
+                                <div class="stats-info">
+                                    <div class="stats-number" id="monthCount">0</div>
+                                    <div class="stats-label">This Month</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="stats-card">
+                            <div class="stats-card-content">
+                                <div class="stats-icon" style="background: rgba(220, 38, 38, 0.1); color: var(--danger);">
+                                    <i class="bi bi-person-badge"></i>
+                                </div>
+                                <div class="stats-info">
+                                    <div class="stats-number" id="mayorCount">0</div>
+                                    <div class="stats-label">Mayor's</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Calendar Card -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="section-title mb-0">Appointment Calendar</h2>
+                        </div>
+                        <div class="card-body p-0">
+                            <div id="calendar"></div>
+                        </div>
+                        
+                        <div class="legend">
+                            <div class="legend-item">
+                                <div class="legend-dot regular"></div>
+                                <span>Regular Appointments</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-dot mayor"></div>
+                                <span>Mayor's Appointments</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
-</div>
 
-<div class="modal fade" id="appointmentModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <form method="POST" action="function.php">
-            <div class="modal-content">
-                <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title">Appointment Details</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <input type="hidden" name="sched_id" id="schedId">
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <p><strong>Name:</strong> <span id="modalName" class="d-block p-2 bg-light rounded"></span></p>
+        <!-- Modal -->
+        <div class="modal fade" id="appointmentModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <form method="POST" action="schedule.php">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Appointment Details</h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                         </div>
-                        <div class="col-md-6">
-                            <p><strong>Purpose:</strong> <span id="modalPurpose" class="d-block p-2 bg-light rounded"></span></p>
+                        <div class="modal-body">
+                            <input type="hidden" name="sched_id" id="schedId">
+                            
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <div class="info-label">Name</div>
+                                    <div class="info-value" id="modalName"></div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Purpose</div>
+                                    <div class="info-value" id="modalPurpose"></div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Attendees</div>
+                                    <div class="info-value" id="modalAttendees"></div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Date</div>
+                                    <div class="info-value" id="modalDate"></div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Time</div>
+                                    <div class="info-value" id="modalTime"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="notes-section">
+                                <label for="note" class="form-label">Admin Notes</label>
+                                <textarea name="note" class="form-control" id="note" rows="4" 
+                                        placeholder="Add notes about this appointment..."></textarea>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                            <button type="submit" class="btn btn-primary" name="save_note">Save Note</button>
                         </div>
                     </div>
-                    <div class="row mb-3">
-                        <div class="col-md-4">
-                            <p><strong>Attendees:</strong> <span id="modalAttendees" class="d-block p-2 bg-light rounded"></span></p>
-                        </div>
-                        <div class="col-md-4">
-                            <p><strong>Date:</strong> <span id="modalDate" class="d-block p-2 bg-light rounded"></span></p>
-                        </div>
-                        <div class="col-md-4">
-                            <p><strong>Time:</strong> <span id="modalTime" class="d-block p-2 bg-light rounded"></span></p>
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="note" class="form-label fw-bold">Admin Notes</label>
-                        <textarea name="note" class="form-control" id="note" rows="4" placeholder="Add notes about this appointment..."></textarea>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    <button type="submit" class="btn btn-primary" name="save_note">Save Note</button>
-                </div>
+                </form>
             </div>
-        </form>
-    </div>
-</div>
+        </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
 
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const calendarEl = document.getElementById('calendar');
-    const modal = new bootstrap.Modal(document.getElementById('appointmentModal'));
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                // Mobile menu functionality
+                const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+                const sidebar = document.getElementById('sidebar');
+                const overlay = document.getElementById('overlay');
 
-    const appointments = <?= json_encode($appointments) ?>;
+                if (mobileMenuBtn) {
+                    mobileMenuBtn.addEventListener('click', function() {
+                        sidebar.classList.toggle('show');
+                        overlay.classList.toggle('show');
+                        document.body.style.overflow = sidebar.classList.contains('show') ? 'hidden' : '';
+                    });
+                }
 
-    const events = appointments.map(appt => {
-        // Format time properly (9:00 AM instead of 9:0)
-        const timeParts = appt.time.split(':');
-        let hours = parseInt(timeParts[0]);
-        const minutes = timeParts[1] || '00';
-        const ampm = hours >= 12 ? 'PM' : 'AM';
-        hours = hours % 12;
-        hours = hours ? hours : 12;
-        const formattedTime = hours + ':' + (minutes.length === 1 ? '0' + minutes : minutes) + ' ' + ampm;
-        
-        // Format title
-        let title;
-        if (appt.is_mayor_appointment) {
-            title = formattedTime + ' MAYOR - ' + appt.purpose;
-        } else {
-            title = formattedTime + ' ' + appt.resident_name + ' - ' + appt.purpose;
-        }
-        
-        return {
-            id: appt.sched_id,
-            title: title,
-            start: appt.date + 'T' + appt.time,
-            extendedProps: {
-                name: appt.resident_name,
-                purpose: appt.purpose,
-                attendees: appt.attendees,
-                time: appt.time,
-                date: appt.date,
-                note: appt.note,
-                isMayorAppointment: appt.is_mayor_appointment || 0,
-                type: appt.appointment_type
-            },
-            className: appt.appointment_type === 'mayor' ? 
-                'mayor-appointment' : 'regular-appointment',
-            display: 'block',
-            overlap: false
-        };
-    });
+                if (overlay) {
+                    overlay.addEventListener('click', function() {
+                        sidebar.classList.remove('show');
+                        overlay.classList.remove('show');
+                        document.body.style.overflow = '';
+                    });
+                }
 
-    const calendar = new FullCalendar.Calendar(calendarEl, {
-        initialView: 'dayGridMonth',
-        height: 700,
-        headerToolbar: {
-            left: 'prev,next today',
-            center: 'title',
-            right: 'dayGridMonth,timeGridWeek,timeGridDay'
-        },
-        events: events,
-        eventDisplay: 'block',
-        eventTimeFormat: {
-            hour: '2-digit',
-            minute: '2-digit',
-            meridiem: 'short',
-            hour12: true
-        },
-        eventClick: function (info) {
-            const props = info.event.extendedProps;
-            document.getElementById('schedId').value = info.event.id;
-            document.getElementById('modalName').textContent = props.name;
-            document.getElementById('modalPurpose').textContent = props.purpose;
-            document.getElementById('modalAttendees').textContent = props.attendees;
-            
-            const dateObj = new Date(props.date);
-            const formattedDate = dateObj.toLocaleDateString('en-US', { 
-                month: 'long', 
-                day: 'numeric', 
-                year: 'numeric' 
+                // Close sidebar on window resize if desktop
+                window.addEventListener('resize', function() {
+                    if (window.innerWidth >= 768) {
+                        sidebar.classList.remove('show');
+                        overlay.classList.remove('show');
+                        document.body.style.overflow = '';
+                    }
+                });
+
+                // Escape key to close sidebar
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') {
+                        sidebar.classList.remove('show');
+                        overlay.classList.remove('show');
+                        document.body.style.overflow = '';
+                    }
+                });
+
+                const calendarEl = document.getElementById('calendar');
+                const modal = new bootstrap.Modal(document.getElementById('appointmentModal'));
+                
+                // Your actual PHP data
+                const appointments = <?= json_encode($appointments) ?>;
+
+                // Calculate statistics
+                const today = new Date().toISOString().split('T')[0];
+                const thisWeekStart = new Date();
+                thisWeekStart.setDate(thisWeekStart.getDate() - thisWeekStart.getDay());
+                const thisMonthStart = new Date();
+                thisMonthStart.setDate(1);
+
+                let todayCount = 0;
+                let weekCount = 0;
+                let monthCount = 0;
+                let mayorCount = 0;
+
+                appointments.forEach(appt => {
+                    if (appt.date === today) todayCount++;
+                    if (new Date(appt.date) >= thisWeekStart) weekCount++;
+                    if (new Date(appt.date) >= thisMonthStart) monthCount++;
+                    if (appt.appointment_type === 'mayor' || appt.is_mayor_appointment) mayorCount++;
+                });
+
+                document.getElementById('todayCount').textContent = todayCount;
+                document.getElementById('weekCount').textContent = weekCount;
+                document.getElementById('monthCount').textContent = monthCount;
+                document.getElementById('mayorCount').textContent = mayorCount;
+
+                const events = appointments.map(appt => {
+                    // Format time properly (9:00 AM instead of 9:0)
+                    const timeParts = appt.time.split(':');
+                    let hours = parseInt(timeParts[0]);
+                    const minutes = timeParts[1] || '00';
+                    const ampm = hours >= 12 ? 'PM' : 'AM';
+                    hours = hours % 12;
+                    hours = hours ? hours : 12;
+                    const formattedTime = hours + ':' + (minutes.length === 1 ? '0' + minutes : minutes) + ' ' + ampm;
+                    
+                    // Format title
+                    let title;
+                    if (appt.is_mayor_appointment || appt.appointment_type === 'mayor') {
+                        title = formattedTime + ' MAYOR - ' + appt.purpose;
+                    } else {
+                        title = formattedTime + ' ' + appt.resident_name + ' - ' + appt.purpose;
+                    }
+                    
+                    return {
+                        id: appt.sched_id,
+                        title: title,
+                        start: appt.date + 'T' + appt.time,
+                        extendedProps: {
+                            name: appt.resident_name,
+                            purpose: appt.purpose,
+                            attendees: appt.attendees,
+                            time: appt.time,
+                            date: appt.date,
+                            note: appt.note,
+                            isMayorAppointment: appt.is_mayor_appointment || 0,
+                            type: appt.appointment_type
+                        },
+                        className: (appt.appointment_type === 'mayor' || appt.is_mayor_appointment) ? 
+                            'mayor-appointment' : 'regular-appointment',
+                        display: 'block',
+                        overlap: false
+                    };
+                });
+
+                const calendar = new FullCalendar.Calendar(calendarEl, {
+                    initialView: window.innerWidth < 768 ? 'timeGridDay' : 'dayGridMonth',
+                    height: 'auto',
+                    headerToolbar: {
+                        left: 'prev,next today',
+                        center: 'title',
+                        right: window.innerWidth < 768 ? 
+                            'dayGridMonth,timeGridDay' : 
+                            'dayGridMonth,timeGridWeek,timeGridDay'
+                    },
+                    events: events,
+                    eventDisplay: 'block',
+                    eventTimeFormat: {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        meridiem: 'short',
+                        hour12: true
+                    },
+                    dayMaxEvents: 4,
+                    moreLinkText: function(num) {
+                        return `+${num} appointments`;
+                    },
+                    eventClick: function (info) {
+                        const props = info.event.extendedProps;
+                        document.getElementById('schedId').value = info.event.id;
+                        document.getElementById('modalName').textContent = props.name;
+                        document.getElementById('modalPurpose').textContent = props.purpose;
+                        document.getElementById('modalAttendees').textContent = props.attendees;
+                        
+                        const dateObj = new Date(props.date);
+                        const formattedDate = dateObj.toLocaleDateString('en-US', { 
+                            month: 'long', 
+                            day: 'numeric', 
+                            year: 'numeric' 
+                        });
+                        
+                        const timeParts = props.time.split(':');
+                        let hours = parseInt(timeParts[0]);
+                        const minutes = timeParts[1] || '00';
+                        const ampm = hours >= 12 ? 'PM' : 'AM';
+                        hours = hours % 12;
+                        hours = hours ? hours : 12;
+                        const formattedTime = hours + ':' + (minutes.length === 1 ? '0' + minutes : minutes) + ' ' + ampm;
+                        
+                        document.getElementById('modalTime').textContent = formattedTime;
+                        document.getElementById('modalDate').textContent = formattedDate;
+                        document.getElementById('note').value = props.note || '';
+                        
+                        modal.show();
+                    },
+                    eventContent: function(arg) {
+                        return {
+                            html: `<div class="fc-event-title">${arg.event.title}</div>`
+                        };
+                    },
+                    windowResize: function() {
+                        if (window.innerWidth < 768) {
+                            calendar.changeView('timeGridDay');
+                        } else {
+                            calendar.changeView('dayGridMonth');
+                        }
+                    },
+                    eventOrder: 'start'
+                });
+
+                calendar.render();
+
+                // Add click effects to stats cards
+                document.querySelectorAll('.stats-card').forEach(card => {
+                    card.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        this.style.transform = 'scale(0.98)';
+                        setTimeout(() => {
+                            this.style.transform = '';
+                        }, 150);
+                    });
+                });
+
+                // Handle form submission with loading state
+                const form = document.querySelector('form[method="POST"]');
+                if (form) {
+                    form.addEventListener('submit', function(e) {
+                        const submitBtn = form.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            const originalText = submitBtn.innerHTML;
+                            submitBtn.disabled = true;
+                            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Saving...';
+                            
+                            // Re-enable button after 3 seconds as fallback
+                            setTimeout(() => {
+                                submitBtn.disabled = false;
+                                submitBtn.innerHTML = originalText;
+                            }, 3000);
+                        }
+                    });
+                }
+
+                // Initialize tooltips if Bootstrap is available
+                if (typeof bootstrap !== 'undefined') {
+                    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+                    const tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+                        return new bootstrap.Tooltip(tooltipTriggerEl);
+                    });
+                }
+
+                console.log('Modern schedule page initialized successfully');
             });
-            
-            const timeParts = props.time.split(':');
-            let hours = parseInt(timeParts[0]);
-            const minutes = timeParts[1] || '00';
-            const ampm = hours >= 12 ? 'PM' : 'AM';
-            hours = hours % 12;
-            hours = hours ? hours : 12;
-            const formattedTime = hours + ':' + (minutes.length === 1 ? '0' + minutes : minutes) + ' ' + ampm;
-            
-            document.getElementById('modalTime').textContent = formattedTime;
-            document.getElementById('modalDate').textContent = formattedDate;
-            document.getElementById('note').value = props.note || '';
-            
-            modal.show();
-        },
-        eventContent: function(arg) {
-            return {
-                html: `<div class="fc-event-title">${arg.event.title}</div>`
-            };
-        },
-        dayMaxEvents: 10, // Show up to 3 events before showing "more" link
-        moreLinkText: function(num) {
-            return num + ' appointments'; // Changed from "+2 more" to "2 appointments"
-        },
-        moreLinkClassNames: 'fc-more-link',
-        eventOrder: 'start'
-    });
-
-    calendar.render();
-});
-</script>
-</body>
-</html>
+        </script>
+    </body>
+    </html>

@@ -57,7 +57,32 @@ function renderCalendar(currentMonth, currentYear, appointmentCounts, amSlots, p
     for (let i = 1; i <= remainingCells; i++) {
         calendarHTML += `<div class="calendar-day disabled"></div>`;
     }
-    document.querySelector('.calendar-grid').innerHTML = calendarHTML;
+    // Try to update either calendar-grid or calendarBody depending on structure
+    const calendarGrid = document.querySelector('.calendar-grid');
+    const calendarBody = document.getElementById('calendarBody');
+    
+    if (calendarBody) {
+        // Table structure - convert to table rows
+        let tableHTML = '';
+        const days = calendarHTML.match(/<div class="calendar-day[^>]*>.*?<\/div>/g) || [];
+        
+        for (let i = 0; i < days.length; i += 7) {
+            tableHTML += '<tr>';
+            for (let j = 0; j < 7; j++) {
+                const dayHTML = days[i + j] || '<td></td>';
+                // Convert div to td
+                const tdHTML = dayHTML.replace('<div class="calendar-day', '<td class="calendar-date')
+                                     .replace('</div>', '</td>')
+                                     .replace('data-date=', 'data-date=');
+                tableHTML += tdHTML;
+            }
+            tableHTML += '</tr>';
+        }
+        calendarBody.innerHTML = tableHTML;
+    } else if (calendarGrid) {
+        // Grid structure
+        calendarGrid.innerHTML = calendarHTML;
+    }
 }
 
 // Time Slot Functions
@@ -235,48 +260,248 @@ function formatFileSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-// Custom Dropdown
+// Custom Dropdown - Simplified and more reliable
 function setupCustomDropdown(dropdownId, btnId, optionClass, labelId, callback) {
     const dropdown = document.getElementById(dropdownId);
     const btn = document.getElementById(btnId);
     const label = document.getElementById(labelId);
+    
+    if (!dropdown || !btn || !label) {
+        console.warn('Dropdown elements not found:', dropdownId, btnId, labelId);
+        return false;
+    }
+    
+    // Mark as initialized to prevent duplicate setup
+    if (btn.dataset.initialized === 'true') {
+        console.log('Dropdown already initialized:', dropdownId);
+        return true;
+    }
+    
     const options = dropdown.querySelectorAll('.' + optionClass);
-    btn.addEventListener('click', function(e) {
+    console.log('Setting up dropdown:', dropdownId, 'with', options.length, 'options');
+    
+    // Button click handler
+    const handleButtonClick = function(e) {
+        e.preventDefault();
         e.stopPropagation();
-        const expanded = btn.getAttribute('aria-expanded') === 'true';
-        btn.setAttribute('aria-expanded', !expanded);
-        btn.classList.toggle('open');
-        dropdown.classList.toggle('open');
-    });
-    options.forEach(function(option) {
-        option.addEventListener('click', function(e) {
-            e.preventDefault();
-            options.forEach(opt => opt.classList.remove('selected'));
-            this.classList.add('selected');
-            label.textContent = this.textContent.trim();
-            btn.setAttribute('aria-expanded', 'false');
-            btn.classList.remove('open');
-            dropdown.classList.remove('open');
-            if (callback) callback(this.getAttribute('data-value'), this.textContent.trim());
+        
+        // Close all other dropdowns
+        document.querySelectorAll('.custom-dropdown.open').forEach(dd => {
+            if (dd !== dropdown) {
+                dd.classList.remove('open');
+                const ddBtn = dd.querySelector('.custom-dropdown-btn');
+                if (ddBtn) {
+                    ddBtn.setAttribute('aria-expanded', 'false');
+                    ddBtn.classList.remove('open');
+                }
+            }
         });
-    });
-    document.addEventListener('click', function(e) {
-        if (!dropdown.contains(e.target)) {
-            btn.setAttribute('aria-expanded', 'false');
-            btn.classList.remove('open');
+        
+        // Toggle this dropdown
+        const isOpen = dropdown.classList.contains('open');
+        if (isOpen) {
             dropdown.classList.remove('open');
+            btn.classList.remove('open');
+            btn.setAttribute('aria-expanded', 'false');
+        } else {
+            dropdown.classList.add('open');
+            btn.classList.add('open');
+            btn.setAttribute('aria-expanded', 'true');
         }
+        
+        console.log('Dropdown toggled:', dropdownId, 'open:', !isOpen);
+    };
+    
+    // Option click handler
+    const handleOptionClick = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Update selection
+        options.forEach(opt => opt.classList.remove('selected'));
+        this.classList.add('selected');
+        
+        // Update label
+        label.textContent = this.textContent.trim();
+        
+        // Close dropdown
+        dropdown.classList.remove('open');
+        btn.classList.remove('open');
+        btn.setAttribute('aria-expanded', 'false');
+        
+        // Execute callback
+        if (callback) {
+            callback(this.getAttribute('data-value'), this.textContent.trim());
+        }
+    };
+    
+    // Add event listeners
+    btn.addEventListener('click', handleButtonClick);
+    
+    options.forEach(function(option) {
+        option.addEventListener('click', handleOptionClick);
     });
+    
+    // Close dropdown when clicking outside
+    const handleOutsideClick = function(e) {
+        if (!dropdown.contains(e.target) && !btn.contains(e.target)) {
+            dropdown.classList.remove('open');
+            btn.classList.remove('open');
+            btn.setAttribute('aria-expanded', 'false');
+        }
+    };
+    
+    document.addEventListener('click', handleOutsideClick);
+    
+    // Mark as initialized
+    btn.dataset.initialized = 'true';
+    
+    return true;
 }
 
-// Export to global window for use in inline scripts
+// Appointment Sorting Functions
+function sortAppointments(container, sortBy) {
+    if (!container) {
+        console.error('Container not found for sorting');
+        return;
+    }
+    
+    console.log('Container found:', container.id, 'Children:', container.children.length);
+    
+    const cards = Array.from(container.children).filter(child => 
+        child.classList.contains('appointment-card')
+    );
+    
+    console.log('Found', cards.length, 'appointment cards to sort by', sortBy);
+    
+    if (cards.length === 0) {
+        console.warn('No appointment cards found to sort');
+        return;
+    }
+    
+    // Debug: log first card's data attributes
+    if (cards[0]) {
+        console.log('First card data:', {
+            date: cards[0].dataset.date,
+            requested: cards[0].dataset.requested
+        });
+    }
+    
+    cards.sort((a, b) => {
+        let valueA, valueB;
+        
+        switch (sortBy) {
+            case 'date-asc':
+                valueA = parseInt(a.dataset.date) || 0;
+                valueB = parseInt(b.dataset.date) || 0;
+                console.log('Sorting date ASC:', valueA, 'vs', valueB);
+                return valueA - valueB;
+            case 'date-desc':
+                valueA = parseInt(a.dataset.date) || 0;
+                valueB = parseInt(b.dataset.date) || 0;
+                console.log('Sorting date DESC:', valueA, 'vs', valueB);
+                return valueB - valueA;
+            case 'created-asc':
+                valueA = parseInt(a.dataset.requested) || 0;
+                valueB = parseInt(b.dataset.requested) || 0;
+                console.log('Sorting requested ASC:', valueA, 'vs', valueB);
+                return valueA - valueB;
+            case 'created-desc':
+                valueA = parseInt(a.dataset.requested) || 0;
+                valueB = parseInt(b.dataset.requested) || 0;
+                console.log('Sorting requested DESC:', valueA, 'vs', valueB);
+                return valueB - valueA;
+            default:
+                console.warn('Unknown sort type:', sortBy);
+                return 0;
+        }
+    });
+    
+    // Clear container and re-append sorted cards
+    const nonCardElements = Array.from(container.children).filter(child => 
+        !child.classList.contains('appointment-card')
+    );
+    
+    console.log('Clearing container and re-adding', cards.length, 'sorted cards');
+    container.innerHTML = '';
+    nonCardElements.forEach(element => container.appendChild(element));
+    cards.forEach(card => container.appendChild(card));
+    
+    console.log('Sorting completed successfully');
+}
+
+function setupAppointmentSorting() {
+    console.log('Setting up appointment sorting...');
+    
+    // Setup sort dropdowns for each tab
+    const sortConfigs = [
+        { id: 'upcomingSortDropdown', btn: 'upcomingSortBtn', option: 'upcoming-sort-option', label: 'upcomingSortLabel', container: 'upcomingAppointmentsContainer' },
+        { id: 'pendingSortDropdown', btn: 'pendingSortBtn', option: 'pending-sort-option', label: 'pendingSortLabel', container: 'pendingRequestsContainer' },
+        { id: 'lapsedSortDropdown', btn: 'lapsedSortBtn', option: 'lapsed-sort-option', label: 'lapsedSortLabel', container: 'lapsedAppointmentsContainer' },
+        { id: 'historySortDropdown', btn: 'historySortBtn', option: 'history-sort-option', label: 'historySortLabel', container: 'historyAppointmentsContainer' },
+        { id: 'categorySortDropdown', btn: 'categorySortBtn', option: 'category-sort-option', label: 'categorySortLabel', container: 'categoryAppointments' }
+    ];
+    
+    sortConfigs.forEach(config => {
+        const dropdown = document.getElementById(config.id);
+        const container = document.getElementById(config.container);
+        
+        console.log('Checking config:', config.id, 'Dropdown exists:', !!dropdown, 'Container exists:', !!container);
+        
+        if (dropdown) {
+            setupCustomDropdown(config.id, config.btn, config.option, config.label, function(value, text) {
+                console.log('Sort callback triggered for:', config.id, 'value:', value);
+                const targetContainer = document.getElementById(config.container);
+                if (targetContainer) {
+                    console.log('Found target container:', config.container);
+                    sortAppointments(targetContainer, value);
+                } else {
+                    console.error('Container not found:', config.container);
+                }
+            });
+        } else {
+            console.log('Dropdown not found:', config.id);
+        }
+    });
+    
+    // Setup history filter dropdown
+    if (document.getElementById('historyFilterDropdown')) {
+        setupCustomDropdown('historyFilterDropdown', 'historyFilterBtn', 'history-filter-option', 'historyFilterLabel', function(value, text) {
+            const container = document.getElementById('historyAppointmentsContainer');
+            const emptyState = document.getElementById('historyEmptyState');
+            if (!container) return;
+            
+            const cards = container.querySelectorAll('.appointment-card');
+            let visibleCount = 0;
+            
+            cards.forEach(card => {
+                const status = card.dataset.status;
+                if (value === 'all' || status === value) {
+                    card.style.display = 'block';
+                    visibleCount++;
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+            
+            if (emptyState) {
+                emptyState.style.display = visibleCount === 0 ? 'block' : 'none';
+            }
+        });
+    }
+}
+
+// Make functions available globally - both ways for compatibility
+window.setupAppointmentSorting = setupAppointmentSorting;
+window.setupCustomDropdown = setupCustomDropdown;
+window.sortAppointments = sortAppointments;
+window.updateMonthYearDisplay = updateMonthYearDisplay;
+
 window.sharedAppointments = {
-    updateMonthYearDisplay,
-    renderCalendar,
-    initTimeSlots,
-    renderTimeSlots,
-    getFileExtension,
-    getFileIcon,
-    formatFileSize,
-    setupCustomDropdown
+    setupAppointmentSorting: setupAppointmentSorting,
+    setupCustomDropdown: setupCustomDropdown,
+    sortAppointments: sortAppointments,
+    updateMonthYearDisplay: updateMonthYearDisplay
 };
+
+// Functions are now available globally - initialization handled by HTML

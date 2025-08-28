@@ -1,22 +1,19 @@
 <?php
+// Enable output buffering and compression
+ob_start();
+if (extension_loaded('zlib') && !ob_get_level()) {
+    ob_start('ob_gzhandler');
+}
+
 session_start();
+
 // Enable error reporting for debugging
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-// Database configuration
-$servername = "localhost";
-$username = "root";
-$password = "";
-$dbname = "my_auth_db";
-
-// Create connection
-$conn = new mysqli($servername, $username, $password, $dbname);
-
-// Check connection
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
+// Use optimized database connection
+require_once 'db_config.php';
+$conn = getDB();
 
 // Login logic
 $login_error = "";
@@ -28,362 +25,93 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login'])) {
     if (empty($loginUsername) || empty($loginPassword)) {
         $login_error = "Both fields are required!";
     } else {
-        // Find user by username or email
-        $sql = "SELECT * FROM users WHERE username = '$loginUsername' OR email = '$loginUsername' LIMIT 1";
-        $result = $conn->query($sql);
-
-        if ($result && $result->num_rows === 1) {
-            $user = $result->fetch_assoc();
-            
-            if (password_verify($loginPassword, $user['password'])) {
-                // Login success, set session and redirect
-                $_SESSION['user_id'] = $user['id'];
-                $_SESSION['username'] = $user['username'];
-                $_SESSION['login_success'] = true;
-                $_SESSION['user_full_name'] = $user['name'];
-                $_SESSION['role'] = $user['role']; // Add role to session
-                
-                // Redirect based on role
-                if ($user['role'] === 'admin') {
-                    header("Location: ../admin../adminPanel.php");
-                } elseif ($user['role'] === 'mayor') {
-                    header("Location: mayorDashboard.php");
-                } else {
-                    // Default to user dashboard for regular users
-                    header("Location: userSide.php");
-                }
-                exit();
-            } else {
-                $login_error = "Invalid password. Please try again.";
-            }
+        // Use prepared statement for security and performance
+        $stmt = executeQuery(
+            "SELECT id, username, name, password, role FROM users WHERE username = ? OR email = ? LIMIT 1",
+            "ss",
+            [$loginUsername, $loginUsername]
+        );
+        
+        if (!$stmt) {
+            $login_error = "Database error. Please try again.";
         } else {
-            $login_error = "User not found. Please check your credentials.";
+            $result = $stmt->get_result();
+
+            if ($result && $result->num_rows === 1) {
+                $user = $result->fetch_assoc();
+                
+                if (password_verify($loginPassword, $user['password'])) {
+                    // Login success, set session and redirect
+                    $_SESSION['user_id'] = $user['id'];
+                    $_SESSION['username'] = $user['username'];
+                    $_SESSION['login_success'] = true;
+                    $_SESSION['user_full_name'] = $user['name'];
+                    $_SESSION['role'] = $user['role']; // Add role to session
+                    
+                    // Redirect based on role
+                    if ($user['role'] === 'admin') {
+                        header("Location: ../admin/adminPanel.php");
+                    } elseif ($user['role'] === 'mayor') {
+                        header("Location: ../mayor/mayorDashboard.php");
+                    } else {
+                        // Default to user dashboard for regular users
+                        header("Location: userSide.php");
+                    }
+                    exit();
+                } else {
+                    $login_error = "Invalid password. Please try again.";
+                }
+            } else {
+                $login_error = "User not found. Please check your credentials.";
+            }
+            $stmt->close();
         }
     }
 }
 
-// Close connection
-$conn->close();
+// Connection will be managed by singleton pattern
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Login to Solano Mayor's Office Appointment System">
     <title>Login - Solano Mayor's Office Appointment System</title>
-    <!-- Bootstrap 5 CSS -->
+    
+    <!-- Preload critical resources -->
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" as="style">
+    <link rel="preload" href="userStyles/login.css" as="style">
+    
+    <!-- DNS prefetch -->
+    <link rel="dns-prefetch" href="//cdn.jsdelivr.net">
+    <link rel="dns-prefetch" href="//fonts.googleapis.com">
+    
+    <!-- Critical CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Montserrat:wght@700;800&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --primary-blue: #0055a4;
-            --primary-green: #28a745;
-            --primary-orange: #ff6b35;
-            --primary-light: #f8f9fa;
-            --primary-dark: #212529;
-        }
-        
-        body {
-            font-family: 'Poppins', sans-serif;
-            color: var(--primary-dark);
-            background: #5d6d7e;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .login-container {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
-            overflow: hidden;
-            width: 100%;
-            max-width: 600px;
-            margin: 20px;
-        }
-        
-        .login-header {
-            background: #0055a4;
-            color: white;
-            padding: 20px;
-            text-align: center;
-        }
-        
-        .login-header h1 {
-            font-family: 'Montserrat', sans-serif;
-            font-weight: 700;
-            margin-bottom: 8px;
-            font-size: 1.5rem;
-        }
-        
-        .login-header p {
-            opacity: 0.9;
-            margin-bottom: 0;
-            font-size: 0.9rem;
-        }
-        
-        .login-body {
-            padding: 25px;
-        }
-        
-        .form-control {
-            padding: 12px 15px;
-            border-radius: 8px;
-            border: 2px solid #e9ecef;
-            transition: all 0.3s;
-            font-size: 0.95rem;
-        }
-        
-        .form-control:focus {
-            border-color: var(--primary-blue);
-            box-shadow: 0 0 0 0.2rem rgba(0, 85, 164, 0.25);
-        }
-        
-        .form-label {
-            font-weight: 600;
-            margin-bottom: 8px;
-            color: #495057;
-        }
-        
-        .btn-primary {
-            background: var(--primary-blue);
-            border: none;
-            padding: 12px 25px;
-            font-weight: 600;
-            border-radius: 8px;
-            transition: all 0.3s;
-            width: 100%;
-            font-size: 1rem;
-        }
-        
-        .btn-primary:hover {
-            background: #004080;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-        }
-        
-        .social-login-btn {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 12px 15px;
-            border-radius: 8px;
-            font-weight: 600;
-            margin: 12px 0;
-            transition: all 0.3s;
-            text-decoration: none;
-            color: white;
-            border: none;
-            width: 100%;
-            cursor: pointer;
-            font-size: 0.9rem;
-        }
-        
-        .social-login-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            color: white;
-        }
-        
-        .google-btn {
-            background: #DB4437;
-        }
-        
-        .google-btn:hover {
-            background: #c23325;
-        }
-        
-
-        
-
-        
-        .social-login-btn i {
-            font-size: 1.5rem;
-            margin-right: 15px;
-        }
-        
-        .divider {
-            display: flex;
-            align-items: center;
-            margin: 15px 0;
-        }
-        
-        .divider:before,
-        .divider:after {
-            content: "";
-            flex: 1;
-            border-bottom: 1px solid #ddd;
-        }
-        
-        .divider-text {
-            padding: 0 20px;
-            color: #777;
-            font-weight: 500;
-        }
-        
-        .password-container {
-            position: relative;
-        }
-        
-        .toggle-password {
-            position: absolute;
-            right: 15px;
-            top: 50%;
-            transform: translateY(-50%);
-            cursor: pointer;
-            color: #6c757d;
-        }
-        
-        .form-footer {
-            text-align: center;
-            margin-top: 15px;
-            font-size: 0.9rem;
-        }
-        
-        .form-footer a {
-            color: var(--primary-blue);
-            text-decoration: none;
-            font-weight: 600;
-        }
-        
-        .form-footer a:hover {
-            text-decoration: underline;
-        }
-        
-        .back-home {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            color: #ecf0f1;
-            text-decoration: none;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            transition: all 0.3s;
-        }
-        
-        .back-home:hover {
-            color: #bdc3c7;
-            transform: translateX(-5px);
-        }
-        
-        .security-info {
-            background: #f8f9fa;
-            border-radius: 12px;
-            padding: 15px;
-            margin-top: 15px;
-        }
-        
-        .security-item {
-            display: flex;
-            align-items: flex-start;
-            margin-bottom: 10px;
-        }
-        
-        .security-item:last-child {
-            margin-bottom: 0;
-        }
-        
-        .security-item i {
-            color: var(--primary-green);
-            margin-right: 15px;
-            margin-top: 3px;
-            font-size: 1.2rem;
-        }
-        
-        .alert {
-            padding: 12px 15px;
-            margin-bottom: 20px;
-            border-radius: 8px;
-            font-weight: 500;
-        }
-        
-        .alert-danger {
-            background-color: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-        
-        .alert-success {
-            background-color: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-            animation: slideIn 0.5s ease-out;
-        }
-        
-        @keyframes slideIn {
-            from {
-                transform: translateY(-20px);
-                opacity: 0;
-            }
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
-        }
-        
-        .fade-out {
-            animation: fadeOut 0.5s ease-out forwards;
-        }
-        
-        @keyframes fadeOut {
-            from {
-                opacity: 1;
-                transform: translateY(0);
-            }
-            to {
-                opacity: 0;
-                transform: translateY(-20px);
-            }
-        }
-        
-        .spinner {
-            animation: spin 1s linear infinite;
-            display: inline-block;
-            margin-right: 10px;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        @media (max-width: 768px) {
-            .login-container {
-                margin: 10px;
-                max-width: 95%;
-            }
-            
-            .login-header,
-            .login-body {
-                padding: 20px 15px;
-            }
-            
-            .back-home {
-                position: relative;
-                top: auto;
-                left: auto;
-                margin-bottom: 15px;
-                color: var(--primary-blue);
-            }
-        }
-    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="userStyles/login.css">
 </head>
 <body>
     <a href="landingPage.php" class="back-home">
         <i class="bi bi-arrow-left"></i>
-        Back to Home
+        <span>Back to Home</span>
     </a>
     
     <div class="login-container">
         <div class="login-header">
-           <img src="images/logooo.png" alt="Company Logo" style="width:150px; height:auto; border-radius: 15px;">
-            <p>Access your appointment dashboard</p>
+            <div class="logo-container">
+                <div class="logo-icon no-border">
+                    <img src="images/logooo.png" alt="Solano Logo" onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\'width:50px;height:50px;background:#0055a4;border-radius:12px;display:flex;align-items:center;justify-content:center;color:white;font-weight:bold;font-size:20px;\'>S</div>';">
+                </div>
+            </div>
+            <div class="brand-text">
+                <h3 class="brand-title">Sol<span class="title-style">ano</span></h3>
+                <p class="brand-subtitle">Mayor's Office</p>
+            </div>
+            <h4>Welcome Back</h4>
+            <p>Sign in to access your appointment dashboard</p>
         </div>
         
         <div class="login-body">
@@ -421,10 +149,6 @@ $conn->close();
                 </button>
             </form>
             
-            <div class="form-footer">
-                <p>Don't have an account? <a href="register.php">Register here</a></p>
-            </div>
-            
             <div class="divider">
                 <span class="divider-text">or continue with</span>
             </div>
@@ -433,28 +157,17 @@ $conn->close();
                 <i class="bi bi-google"></i>Login with Google
             </button>
             
-            <div class="security-info">
-                <div class="security-item">
-                    <i class="bi bi-shield-check"></i>
-                    <div>We never access your personal information without permission</div>
-                </div>
-                <div class="security-item">
-                    <i class="bi bi-lock"></i>
-                    <div>Your data is encrypted and securely stored</div>
-                </div>
-                <div class="security-item">
-                    <i class="bi bi-person-x"></i>
-                    <div>We don't share your information with third parties</div>
-                </div>
+            <div class="form-footer">
+                <p>Don't have an account? <a href="register.php">Register here</a></p>
             </div>
         </div>
     </div>
 
-    <!-- Bootstrap JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Optimized JavaScript loading -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" defer></script>
     
     <script>
-        // Password toggle functionality
+        // Password toggle functionality - EXACTLY like working version
         const togglePassword = document.getElementById('togglePassword');
         const passwordInput = document.querySelector('input[name="loginPassword"]');
         
@@ -467,20 +180,20 @@ $conn->close();
             this.classList.toggle('bi-eye');
         });
         
-        // Google Login
+        // Google Login - EXACTLY like working version
         document.getElementById('googleLoginBtn').addEventListener('click', function() {
             const originalText = this.innerHTML;
             this.innerHTML = '<i class="bi bi-arrow-repeat spinner"></i> Redirecting to Google...';
             this.disabled = true;
             
-            // Redirect to Google OAuth simulator (works without Google Cloud setup)
+            // Redirect to Google OAuth simulator
             window.location.href = 'google_oauth_simulator.php';
         });
         
-        // Registration success toast
+        // Registration success toast - EXACTLY like working version
         const registrationSuccess = document.getElementById('registrationSuccess');
         if (registrationSuccess) {
-            // Auto-hide the toast after 5 seconds
+            // Auto-hide after 5 seconds
             setTimeout(() => {
                 registrationSuccess.classList.add('fade-out');
                 setTimeout(() => {
@@ -496,8 +209,6 @@ $conn->close();
                 }, 500);
             });
         }
-        
-
     </script>
 </body>
-</html> 
+</html>

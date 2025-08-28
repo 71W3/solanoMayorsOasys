@@ -433,4 +433,161 @@ function sendAppointmentDeclinedEmail($user_email, $user_name, $appointment_date
         return ['success' => false, 'message' => $e->getMessage()];
     }
 }
+
+function sendAppointmentApprovedEmail($user_email, $user_name, $appointment_date, $appointment_time, $purpose, $attendees, $other_details = '', $admin_message = '') {
+    // Email subject
+    $subject = "Appointment Approved - Solano Mayor's Office";
+    
+    // Format date/time
+    $formatted_date = date('l, F j, Y', strtotime($appointment_date));
+    $formatted_time = date('g:i A', strtotime($appointment_time));
+    
+    // Email body
+    $message = "
+    <html>
+    <head>
+        <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #28a745; color: white; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .appointment-details { background: white; padding: 15px; margin: 15px 0; border-left: 4px solid #28a745; }
+            .footer { background: #f0f0f0; padding: 15px; text-align: center; font-size: 12px; color: #666; }
+            .status-badge { background: #28a745; color: white; padding: 5px 10px; border-radius: 15px; font-weight: bold; }
+            .instructions { background: #d4edda; padding: 15px; margin: 15px 0; border-radius: 5px; border: 1px solid #c3e6cb; }
+            .admin-message { background: #e8f5e8; padding: 15px; margin: 15px 0; border-radius: 5px; }
+            .important-notes { background: #fff3cd; padding: 15px; margin: 15px 0; border-radius: 5px; border: 1px solid #ffeeba; }
+        </style>
+    </head>
+    <body>
+        <div class='container'>
+            <div class='header'>
+                <h2>🎉 Congratulations!</h2>
+                <h3>Your Appointment Has Been Approved</h3>
+                <p>Solano Mayor's Office</p>
+            </div>
+            
+            <div class='content'>
+                <h3>Dear " . htmlspecialchars($user_name) . ",</h3>
+                
+                <p>Great news! Your appointment request has been <strong>approved</strong> and confirmed by our office.</p>
+                
+                <div class='appointment-details'>
+                    <h4>📅 Your Confirmed Appointment Details:</h4>
+                    <p><strong>Date:</strong> " . $formatted_date . "</p>
+                    <p><strong>Time:</strong> " . $formatted_time . "</p>
+                    <p><strong>Purpose:</strong> " . htmlspecialchars($purpose) . "</p>
+                    <p><strong>Number of Attendees:</strong> " . $attendees . " person(s)</p>";
+    
+    if (!empty($other_details)) {
+        $message .= "<p><strong>Additional Details:</strong> " . htmlspecialchars($other_details) . "</p>";
+    }
+    
+    $message .= "
+                    <p><strong>Status:</strong> <span class='status-badge'>✅ APPROVED & CONFIRMED</span></p>
+                </div>";
+                
+    if (!empty($admin_message)) {
+        $message .= "
+                <div class='admin-message'>
+                    <h4>📝 Message from Admin:</h4>
+                    <p>" . nl2br(htmlspecialchars($admin_message)) . "</p>
+                </div>";
+    }
+    
+    $message .= "
+                <div class='instructions'>
+                    <h4>🔔 What to do next:</h4>
+                    <ul>
+                        <li>Mark this date and time in your calendar</li>
+                        <li>Prepare any necessary documents mentioned in your appointment request</li>
+                        <li>Plan to arrive 10 minutes before your scheduled time</li>
+                        <li>If you need to reschedule or cancel, contact us at least 24 hours in advance</li>
+                    </ul>
+                </div>
+                
+                <div class='important-notes'>
+                    <h4>⚠️ Important Reminders:</h4>
+                    <ul>
+                        <li><strong>Arrive on Time:</strong> Please be at our office 10 minutes before your scheduled appointment</li>
+                        <li><strong>Bring Valid ID:</strong> Government-issued identification is required</li>
+                        <li><strong>Required Documents:</strong> Bring any documents related to your appointment purpose</li>
+                        <li><strong>Dress Code:</strong> Please dress appropriately for a government office visit</li>
+                        <li><strong>Health Protocols:</strong> Follow any health and safety guidelines in place</li>
+                    </ul>
+                </div>
+                
+                <div class='appointment-details'>
+                    <h4>📍 Office Information:</h4>
+                    <p><strong>Address:</strong> Solano Mayor's Office<br>
+                    Municipal Hall, Solano, Nueva Vizcaya</p>
+                    <p><strong>Contact Information:</strong></p>
+                    <ul>
+                        <li><strong>Phone:</strong> (078) 123-4567</li>
+                        <li><strong>Email:</strong> info@solanomayor.gov.ph</li>
+                        <li><strong>Office Hours:</strong> Monday - Friday, 8:00 AM - 5:00 PM</li>
+                    </ul>
+                </div>
+                
+                <p>We look forward to serving you on your appointed date. Thank you for choosing the Solano Mayor's Office for your municipal service needs.</p>
+                
+                <p>If you have any questions or concerns about your appointment, please don't hesitate to contact us.</p>
+                
+                <p>Best regards,<br>
+                <strong>Solano Mayor's Office Team</strong><br>
+                <em>\"Serving our community with excellence\"</em></p>
+            </div>
+            
+            <div class='footer'>
+                <p>This is an automated confirmation email. Please save this email for your records.</p>
+                <p>&copy; 2025 Solano Mayor's Office. All rights reserved.</p>
+                <p style='color: #28a745; font-weight: bold;'>Your appointment is confirmed! We'll see you soon.</p>
+            </div>
+        </div>
+    </body>
+    </html>";
+
+    try {
+        $mail = new PHPMailer(true);
+        $mail->isSMTP();
+        $mail->Host = getSMTPSettings()['host'];
+        $mail->SMTPAuth = true;
+        $mail->Username = getSMTPSettings()['username'];
+        $mail->Password = getSMTPSettings()['password'];
+        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port = getSMTPSettings()['port'];
+        
+        // SSL certificate verification settings for development
+        $mail->SMTPOptions = array(
+            'ssl' => array(
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+                'allow_self_signed' => true
+            )
+        );
+        
+        $mail->setFrom(getSMTPSettings()['from_email'], 'Solano Mayor\'s Office');
+        $mail->addAddress($user_email, $user_name);
+        $mail->addReplyTo('info@solanomayor.gov.ph', 'Solano Mayor\'s Office');
+        $mail->isHTML(true);
+        $mail->Subject = $subject;
+        $mail->Body = $message;
+        $mail->AltBody = strip_tags(str_replace(['<br>', '</p>', '</li>'], ["\n", "\n\n", "\n"], $message));
+        
+        $mail->send();
+        logEmailAttempt($user_email, $user_name, $subject, true, 'Approval email sent successfully');
+        
+        return [
+            'success' => true, 
+            'message' => 'Approval email sent successfully to ' . $user_email
+        ];
+        
+    } catch (Exception $e) {
+        logEmailAttempt($user_email, $user_name, $subject, false, $e->getMessage());
+        return [
+            'success' => false, 
+            'message' => 'Approval email could not be sent. Error: ' . $e->getMessage()
+        ];
+    }
+}
 ?> 
