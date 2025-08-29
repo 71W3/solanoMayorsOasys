@@ -1,6 +1,14 @@
 <?php
 session_start();
 include "connect.php";
+include "adminPanel_functions.php";
+
+// Initialize admin panel to get proper admin info
+$adminData = initializeAdminPanel($con);
+
+// Extract admin info from the admin data array
+$admin_name = $adminData['admin_name'];
+$admin_role = $adminData['admin_role'];
 
 $_SESSION['admin_logged_in'] = true;
 
@@ -12,24 +20,25 @@ if (isset($_POST['add_mayor_appointment'])) {
     $place = $_POST['place'];
     $date = $_POST['date'];
     $time = $_POST['time'];
+    $appointment_type = $_POST['appointment_type'];
+    $photographer = $_POST['photographer'];
     
     try {
         $con->begin_transaction();
         
         // Insert into mayors_appointment table
         $stmt = $con->prepare("INSERT INTO mayors_appointment 
-            (appointment_title, description, place, date, time) 
-            VALUES (?, ?, ?, ?, ?)");
-        $stmt->bind_param("sssss", $appointment_title, $description, $place, $date, $time);
+            (appointment_title, description, place, date, time, appointment_type, photographer) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $stmt->bind_param("sssssss", $appointment_title, $description, $place, $date, $time, $appointment_type, $photographer);
         $stmt->execute();
         $mayor_app_id = $con->insert_id;
         
         // Insert into schedule table - only set mayor_id, not app_id
         $stmt = $con->prepare("INSERT INTO schedule 
-            (mayor_id, note, created_at, updated_at) 
-            VALUES (?, ?, NOW(), NOW())");
-        $note = "Mayor's appointment: $appointment_title";
-        $stmt->bind_param("is", $mayor_app_id, $note);
+            (mayor_id, created_at, updated_at) 
+            VALUES (?, NOW(), NOW())");
+        $stmt->bind_param("i", $mayor_app_id);
         $stmt->execute();
         
         $con->commit();
@@ -150,13 +159,21 @@ if (isset($_POST['action']) && isset($_POST['appointment_id'])) {
             $new_time = $_POST['new_time'];
             $admin_message = $_POST['admin_message'];
 
-            // Get user_id for this appointment
-            $stmt = $con->prepare("SELECT user_id FROM appointments WHERE id = ?");
-            $stmt->bind_param("i", $app_id);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            $appointment = $result->fetch_assoc();
+            // Get appointment details for email
+            $appointment_query = "SELECT a.*, u.name as user_name, u.email as user_email 
+                                 FROM appointments a 
+                                 JOIN users u ON a.user_id = u.id 
+                                 WHERE a.id = $app_id";
+            $appointment_result = $con->query($appointment_query);
+            
+            if (!$appointment_result || $appointment_result->num_rows === 0) {
+                throw new Exception("Appointment not found");
+            }
+            
+            $appointment = $appointment_result->fetch_assoc();
             $user_id = $appointment['user_id'];
+            $old_date = $appointment['date'];
+            $old_time = $appointment['time'];
 
             // Update appointment
             $stmt = $con->prepare("UPDATE appointments SET date = ?, time = ?, updated_at = NOW() WHERE id = ?");
@@ -169,8 +186,27 @@ if (isset($_POST['action']) && isset($_POST['appointment_id'])) {
             $stmt->bind_param("is", $user_id, $message);
             $stmt->execute();
 
-            $_SESSION['message'] = "Appointment #$app_id rescheduled successfully and user notified. 🗓️";
-            $_SESSION['message_type'] = "info";
+            // Send reschedule email
+            include_once "../user/email_helper_phpmailer.php";
+            
+            $email_result = sendAppointmentRescheduledEmail(
+                $appointment['user_email'],
+                $appointment['user_name'],
+                $old_date,
+                $old_time,
+                $new_date,
+                $new_time,
+                $appointment['purpose'],
+                $admin_message
+            );
+
+            if ($email_result['success']) {
+                $_SESSION['message'] = "Appointment #$app_id rescheduled successfully and email notification sent to " . $appointment['user_email'] . ". 🗓️";
+                $_SESSION['message_type'] = "success";
+            } else {
+                $_SESSION['message'] = "Appointment #$app_id rescheduled successfully, but email notification failed to send.";
+                $_SESSION['message_type'] = "warning";
+            }
             
         } elseif ($action == 'complete') {
             // Get user_id for this appointment
@@ -280,7 +316,533 @@ $approved_appointments = $stmt->get_result();
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-     <link rel="stylesheet" href="adminStyles/appointment.css">
+    <style>
+        :root {
+            --primary: #1e293b;
+            --secondary: #64748b;
+            --accent: #2563eb;
+            --success: #059669;
+            --warning: #d97706;
+            --danger: #dc2626;
+            --light: #f8fafc;
+            --lighter: #f1f5f9;
+            --dark: #0f172a;
+            --border: #e2e8f0;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --text-muted: #94a3b8;
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            --radius: 8px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--lighter);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .wrapper {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            width: 260px;
+            background: white;
+            border-right: 1px solid var(--border);
+            position: fixed;
+            height: 100vh;
+            z-index: 1000;
+            box-shadow: var(--shadow-sm);
+            transition: transform 0.3s ease;
+            overflow-y: auto;
+        }
+         .sidebar-header .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            color: white;
+        }
+
+        .sidebar-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border);
+            background: var(--primary);
+            color: white;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+         .sidebar-header h5 {
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin: 0;
+        }
+        .sidebar-header .version {
+            font-size: 0.75rem;
+            opacity: 0.7;
+            margin-top: 0.25rem;
+        }
+
+        .sidebar-nav {
+            padding: 1rem 0;
+        }
+
+        .sidebar-nav a {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1.5rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .sidebar-nav a:hover,
+        .sidebar-nav a.active {
+            background: var(--lighter);
+            color: var(--accent);
+            border-right: 3px solid var(--accent);
+        }
+
+        .sidebar-nav a i {
+            width: 20px;
+            margin-right: 0.75rem;
+        }
+
+        .main-content {
+            margin-left: 260px;
+            flex: 1;
+            min-height: 100vh;
+        }
+
+        .topbar {
+            background: white;
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            box-shadow: var(--shadow-sm);
+            position: sticky;
+            top: 0;
+            z-index: 500;
+        }
+
+        .content {
+            padding: 2rem;
+        }
+
+        .alert {
+            border: none;
+            border-radius: var(--radius);
+            font-weight: 500;
+            box-shadow: var(--shadow-lg);
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+            max-width: 400px;
+            animation: slideInRight 0.3s ease-out;
+            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.95);
+        }
+        
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        .alert.fade-out {
+            animation: slideOutRight 0.3s ease-in forwards;
+        }
+        
+        @keyframes slideOutRight {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+        }
+
+        .card {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: white;
+            box-shadow: var(--shadow-sm);
+            overflow: hidden;
+        }
+
+        .card-header {
+            background: var(--light);
+            border-bottom: 1px solid var(--border);
+            padding: 1.25rem 1.5rem;
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .card-body {
+            padding: 1.5rem;
+        }
+
+        .btn {
+            border-radius: var(--radius);
+            font-weight: 500;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            border: none;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1d4ed8;
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #047857;
+            transform: translateY(-1px);
+        }
+
+        .btn-warning {
+            background: var(--warning);
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background: #b45309;
+            transform: translateY(-1px);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #b91c1c;
+            transform: translateY(-1px);
+        }
+
+        .btn-outline-secondary {
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            background: transparent;
+        }
+
+        .btn-outline-secondary:hover {
+            background: var(--light);
+            border-color: var(--secondary);
+        }
+
+        .btn-sm {
+            padding: 0.375rem 0.75rem;
+            font-size: 0.8125rem;
+        }
+
+        .table {
+            background: white;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            margin: 0;
+        }
+
+        .table thead th {
+            background: var(--light);
+            border-bottom: 1px solid var(--border);
+            font-weight: 600;
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            padding: 1rem 0.75rem;
+            border-top: none;
+        }
+
+        .table tbody td {
+            padding: 0.875rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.875rem;
+            vertical-align: middle;
+        }
+
+        .table tbody tr:hover {
+            background: var(--lighter);
+        }
+
+        .today-row {
+            background: rgba(34, 197, 94, 0.05);
+            border-left: 4px solid var(--success);
+        }
+
+        .past-row {
+            background: rgba(239, 68, 68, 0.05);
+            border-left: 4px solid var(--danger);
+        }
+
+        .modal-content {
+            border: none;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .modal-header {
+            background: var(--light);
+            border-bottom: 1px solid var(--border);
+            padding: 1.25rem 1.5rem;
+        }
+
+        .modal-title {
+            font-weight: 600;
+            font-size: 1.125rem;
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            padding: 1.5rem;
+        }
+
+        .modal-footer {
+            background: var(--light);
+            border-top: 1px solid var(--border);
+            padding: 1rem 1.5rem;
+        }
+
+        .form-control,
+        .form-select {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 0.75rem;
+            font-size: 0.875rem;
+            transition: all 0.2s ease;
+        }
+
+        .form-control:focus,
+        .form-select:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .form-label {
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .badge {
+            padding: 0.5rem 0.75rem;
+            border-radius: var(--radius);
+            font-weight: 500;
+            font-size: 0.75rem;
+        }
+
+        .page-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0;
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0 0 1.5rem 0;
+        }
+
+        .appointment-details {
+            background: var(--light);
+            padding: 1.25rem;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            margin: 1rem 0;
+        }
+
+        .stats-card {
+            padding: 1.5rem;
+            background: white;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .stats-number {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .stats-label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
+            }
+
+            .sidebar.show {
+                transform: translateX(0);
+            }
+
+            .main-content {
+                margin-left: 0;
+            }
+
+            .topbar {
+                padding: 1rem;
+            }
+
+            .content {
+                padding: 1rem;
+            }
+
+            .mobile-menu-btn {
+                display: block;
+                background: none;
+                border: none;
+                font-size: 1.25rem;
+                color: var(--text-primary);
+            }
+
+            .table-responsive {
+                border-radius: var(--radius);
+                overflow: hidden;
+                box-shadow: var(--shadow-sm);
+            }
+
+            .btn-group-mobile {
+                display: flex;
+                flex-direction: column;
+                gap: 0.25rem;
+            }
+
+            .btn-group-mobile .btn {
+                font-size: 0.75rem;
+                padding: 0.25rem 0.5rem;
+            }
+
+            .modal-dialog {
+                margin: 1rem;
+            }
+
+            .card-header {
+                padding: 1rem;
+            }
+
+            .card-body {
+                padding: 1rem;
+            }
+        }
+
+        @media (max-width: 576px) {
+            .page-title {
+                font-size: 1.25rem;
+            }
+
+            .section-title {
+                font-size: 1.125rem;
+            }
+
+            .table thead th,
+            .table tbody td {
+                padding: 0.5rem 0.375rem;
+                font-size: 0.8125rem;
+            }
+        }
+
+        /* Print Styles */
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+
+            .print-only {
+                display: block !important;
+            }
+
+            body {
+                background: white;
+            }
+
+            .sidebar,
+            .topbar {
+                display: none;
+            }
+
+            .main-content {
+                margin-left: 0;
+            }
+
+            .content {
+                padding: 0;
+            }
+
+            .table {
+                box-shadow: none;
+                border: 1px solid #ddd;
+            }
+        }
+
+        .print-only {
+            display: none;
+        }
+
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+            display: none;
+        }
+
+        .overlay.show {
+            display: block;
+        }
+
+    </style>
 </head>
 <body>
     <div class="overlay" id="overlay"></div>
@@ -291,7 +853,7 @@ $approved_appointments = $stmt->get_result();
             <div class="sidebar-header">
                 <div class="logo">
                     <div class="logo-icon">
-                        <i class="bi bi-sun"></i>
+                        <img src="../image/logo.png" alt="Logo" style="width: 32px; height: 32px; object-fit: contain;">
                     </div>
                     <div>
                         <h5>OASYS Admin</h5>
@@ -320,13 +882,17 @@ $approved_appointments = $stmt->get_result();
                     <i class="bi bi-calendar"></i>
                     Schedule
                 </a>
-                <a href="#">
-                    <i class="bi bi-graph-up"></i>
-                    Reports
+                <a href="announcement.php">
+                    <i class="bi bi-megaphone"></i>
+                    Announcement
                 </a>
-                <a href="#">
-                    <i class="bi bi-gear"></i>
-                    Settings
+                <a href="history.php">
+                    <i class="bi bi-clock-history"></i>
+                    History
+                </a>
+                <a href="adminRegister.php">
+                    <i class="bi bi-person-plus"></i>
+                    Admin Registration
                 </a>
                 <a href="logout.php">
                     <i class="bi bi-box-arrow-right"></i>
@@ -346,7 +912,10 @@ $approved_appointments = $stmt->get_result();
                         <h1 class="page-title">Appointment Management</h1>
                     </div>
                     <div class="d-flex align-items-center">
-                        <span class="text-muted me-2">Admin</span>
+                        <div class="d-none d-sm-inline me-2">
+                            <div class="text-muted small"><?= htmlspecialchars($admin_name) ?></div>
+                            <div class="text-muted small"><?= htmlspecialchars($admin_role) ?></div>
+                        </div>
                         <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 36px; height: 36px;">
                             <i class="bi bi-person-fill"></i>
                         </div>
@@ -356,7 +925,7 @@ $approved_appointments = $stmt->get_result();
 
             <!-- Alerts -->
             <?php if (isset($_SESSION['message'])): ?>
-                <div class="alert alert-<?= $_SESSION['message_type'] ?> alert-dismissible fade show" role="alert">
+                <div class="alert alert-<?= $_SESSION['message_type'] ?> alert-dismissible fade show" role="alert" id="sessionAlert">
                     <i class="bi bi-check-circle-fill me-2"></i>
                     <?= $_SESSION['message'] ?>
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
@@ -588,14 +1157,10 @@ $approved_appointments = $stmt->get_result();
                                                             </button>
                                                         </form>
                                                         
-                                                        <button type="button" class="btn btn-warning btn-sm reschedule-btn" 
-                                                            data-appointment-id="<?= $row['appointment_id'] ?>"
-                                                            data-appointment-date="<?= $row['date'] ?>"
-                                                            data-appointment-time="<?= $row['time'] ?>"
-                                                            data-bs-toggle="modal" data-bs-target="#rescheduleModal">
+                                                        <a href="reschedule.php?id=<?= $row['appointment_id'] ?>" class="btn btn-warning btn-sm">
                                                             <i class="bi bi-calendar-check"></i>
                                                             <span class="d-none d-xl-inline">Reschedule</span>
-                                                        </button>
+                                                        </a>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -663,6 +1228,38 @@ $approved_appointments = $stmt->get_result();
                                 <input type="time" class="form-control" id="time" name="time" required>
                             </div>
                         </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Appointment Type</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="appointment_type" id="for_info" value="For Info">
+                                <label class="form-check-label" for="for_info">
+                                    For Info
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="appointment_type" id="for_attendance" value="For Attendance">
+                                <label class="form-check-label" for="for_attendance">
+                                    For Attendance
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">With Photographer</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="photographer" id="photographer_yes" value="Yes">
+                                <label class="form-check-label" for="photographer_yes">
+                                    Yes
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="photographer" id="photographer_no" value="No">
+                                <label class="form-check-label" for="photographer_no">
+                                    No
+                                </label>
+                            </div>
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -676,47 +1273,6 @@ $approved_appointments = $stmt->get_result();
         </div>
     </div>
 
-    <!-- Reschedule Modal -->
-    <div class="modal fade" id="rescheduleModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <form method="post" action="appointment.php">
-                    <div class="modal-header">
-                        <h5 class="modal-title">
-                            <i class="bi bi-calendar-check me-2"></i>
-                            Reschedule Appointment
-                        </h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body">
-                        <input type="hidden" name="appointment_id" id="reschedule_appointment_id">
-                        <input type="hidden" name="action" value="reschedule">
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="new_date" class="form-label">New Date</label>
-                                <input type="date" class="form-control" id="new_date" name="new_date" required>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="new_time" class="form-label">New Time</label>
-                                <input type="time" class="form-control" id="new_time" name="new_time" required>
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="admin_message" class="form-label">Message to User</label>
-                            <textarea class="form-control" id="admin_message" name="admin_message" rows="3" required placeholder="Explain why you're rescheduling this appointment..."></textarea>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-warning">
-                            <i class="bi bi-calendar-check"></i>
-                            Reschedule
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
 
     <!-- View Details Modal -->
     <div class="modal fade" id="viewDetailsModal" tabindex="-1" aria-labelledby="viewDetailsModalLabel" aria-hidden="true">
@@ -1062,30 +1618,74 @@ $approved_appointments = $stmt->get_result();
             });
         }
 
-        // Auto-dismiss alerts after 5 seconds
-        setTimeout(() => {
+        // Function to auto-dismiss alerts
+        function autoDismissAlerts() {
             const alerts = document.querySelectorAll('.alert');
             alerts.forEach(alert => {
-                if (bootstrap.Alert.getInstance(alert)) {
-                    bootstrap.Alert.getInstance(alert).close();
-                } else {
-                    new bootstrap.Alert(alert).close();
+                // Skip if already fading out
+                if (alert.classList.contains('fade-out')) return;
+                
+                // Try to close Bootstrap alert first
+                try {
+                    if (bootstrap && bootstrap.Alert) {
+                        const bsAlert = bootstrap.Alert.getInstance(alert);
+                        if (bsAlert) {
+                            bsAlert.close();
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    // Bootstrap not available or error occurred
                 }
+                
+                // Fallback: Add fade-out animation and remove manually
+                alert.classList.add('fade-out');
+                setTimeout(() => {
+                    if (alert.parentNode) {
+                        alert.parentNode.removeChild(alert);
+                    }
+                }, 300);
             });
-        }, 5000);
-
-        // Handle Reschedule button
-        document.querySelectorAll('.reschedule-btn').forEach(button => {
-            button.addEventListener('click', function() {
-                const appointmentId = this.getAttribute('data-appointment-id');
-                const currentDate = this.getAttribute('data-appointment-date');
-                const currentTime = this.getAttribute('data-appointment-time');
-
-                document.getElementById('reschedule_appointment_id').value = appointmentId;
-                document.getElementById('new_date').value = currentDate;
-                document.getElementById('new_time').value = currentTime;
+        }
+        
+        // Auto-dismiss all alerts after 3 seconds
+        setTimeout(autoDismissAlerts, 3000);
+        
+        // Also handle any dynamically added alerts
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check for alerts again after DOM is fully loaded
+            setTimeout(autoDismissAlerts, 3000);
+            
+            // Use MutationObserver to catch any dynamically added alerts
+            const observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                    if (mutation.type === 'childList') {
+                        mutation.addedNodes.forEach(function(node) {
+                            if (node.nodeType === 1 && node.classList && node.classList.contains('alert')) {
+                                // New alert added, auto-dismiss after 3 seconds
+                                setTimeout(() => {
+                                    if (node.classList.contains('fade-out')) return; // Already fading out
+                                    node.classList.add('fade-out');
+                                    setTimeout(() => {
+                                        if (node.parentNode) {
+                                            node.parentNode.removeChild(node);
+                                        }
+                                    }, 300);
+                                }, 3000);
+                            }
+                        });
+                    }
+                });
+            });
+            
+            // Start observing
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
             });
         });
+
+        // Handle Reschedule button - removed duplicate handler
 
         // View details modal logic
         document.querySelectorAll('.view-details-btn').forEach(btn => {
@@ -1340,13 +1940,15 @@ $approved_appointments = $stmt->get_result();
             const container = document.querySelector('.content') || document.body;
             container.prepend(alertDiv);
             
+            // Auto-dismiss after 3 seconds with smooth fade-out
             setTimeout(() => {
-                if (bootstrap.Alert.getInstance(alertDiv)) {
-                    bootstrap.Alert.getInstance(alertDiv).close();
-                } else {
-                    new bootstrap.Alert(alertDiv).close();
-                }
-            }, 5000);
+                alertDiv.classList.add('fade-out');
+                setTimeout(() => {
+                    if (alertDiv.parentNode) {
+                        alertDiv.parentNode.removeChild(alertDiv);
+                    }
+                }, 300);
+            }, 3000);
         }
 
         // Set minimum date for date inputs to today
@@ -1375,6 +1977,25 @@ $approved_appointments = $stmt->get_result();
                 overlay.classList.remove('show');
             }
         });
+
+        // Reset mayor appointment modal form when opened
+        const mayorAppointmentModal = document.getElementById('mayorAppointmentModal');
+        if (mayorAppointmentModal) {
+            mayorAppointmentModal.addEventListener('show.bs.modal', function() {
+                // Reset the form
+                const form = this.querySelector('form');
+                if (form) {
+                    form.reset();
+                    
+                    // Uncheck all radio buttons
+                    const radioButtons = form.querySelectorAll('input[type="radio"]');
+                    radioButtons.forEach(radio => {
+                        radio.checked = false;
+                    });
+                }
+            });
+        }
+
     });
     </script>
 

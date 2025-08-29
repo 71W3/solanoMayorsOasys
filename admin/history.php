@@ -2,6 +2,30 @@
 session_start();
 include 'connect.php';
 
+// Get admin info from session or database
+$admin_name = "Admin";
+$admin_role = "Administrator";
+
+// Check for admin_id (from admin login) or user_id (from user login for admin users)
+$admin_id = null;
+if (isset($_SESSION['admin_id'])) {
+    $admin_id = $_SESSION['admin_id'];
+} elseif (isset($_SESSION['user_id']) && isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'mayor'])) {
+    $admin_id = $_SESSION['user_id'];
+}
+
+if ($admin_id) {
+    $stmt = $con->prepare("SELECT name, role FROM users WHERE id = ? AND role IN ('admin', 'mayor')");
+    $stmt->bind_param("i", $admin_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($admin = $result->fetch_assoc()) {
+        $admin_name = $admin['name'];
+        $admin_role = ucfirst($admin['role']);
+    }
+}
+
 // Initialize variables for filtering
 $history_type = isset($_GET['history_type']) ? $_GET['history_type'] : 'all';
 $time_range = isset($_GET['time_range']) ? $_GET['time_range'] : 'today';
@@ -79,150 +103,604 @@ $total_records = $total_online + $total_walkin;
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>History | SOLAR Appointments</title>
+    <title>History - SOLAR Appointment System</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Montserrat:wght@700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --solano-blue: #0055a4;
-            --solano-gold: #ffd700;
-            --solano-orange: #ff6b35;
-            --solano-light: #f8f9fa;
-            --solano-dark: #212529;
+            --primary: #1e293b;
+            --secondary: #64748b;
+            --accent: #2563eb;
+            --success: #059669;
+            --warning: #d97706;
+            --danger: #dc2626;
+            --light: #f8fafc;
+            --lighter: #f1f5f9;
+            --dark: #0f172a;
+            --border: #e2e8f0;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --text-muted: #94a3b8;
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            --radius: 8px;
         }
-        
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: 'Poppins', sans-serif;
-            background-color: #f5f7fa;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--lighter);
+            color: var(--text-primary);
+            line-height: 1.6;
         }
-        
-        .card {
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            border: none;
-            margin-bottom: 20px;
+
+        .wrapper {
+            display: flex;
+            min-height: 100vh;
         }
-        
-        .card-header {
-            background-color: white;
-            border-bottom: 1px solid rgba(0,0,0,0.05);
+
+        .sidebar {
+            width: 260px;
+            background: white;
+            border-right: 1px solid var(--border);
+            position: fixed;
+            height: 100vh;
+            z-index: 1000;
+            box-shadow: var(--shadow-sm);
+            transition: transform 0.3s ease;
+            overflow-y: auto;
+        }
+
+        .sidebar-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border);
+            background: var(--primary);
+            color: white;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .sidebar-header .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .sidebar-header .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            color: white;
+        }
+
+        .sidebar-header h5 {
             font-weight: 600;
-            padding: 15px 20px;
+            font-size: 1.1rem;
+            margin: 0;
         }
-        
+
+        .sidebar-header .version {
+            font-size: 0.75rem;
+            opacity: 0.7;
+            margin-top: 0.25rem;
+        }
+
+        .sidebar-nav {
+            padding: 1rem 0;
+        }
+
+        .sidebar-nav a {
+            display: flex;
+            align-items: center;
+            padding: 0.875rem 1.5rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            border: none;
+            background: transparent;
+            position: relative;
+        }
+
+        .sidebar-nav a:hover,
+        .sidebar-nav a.active {
+            background: var(--lighter);
+            color: var(--accent);
+        }
+
+        .sidebar-nav a.active::before {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: var(--accent);
+        }
+
+        .sidebar-nav a i {
+            width: 20px;
+            margin-right: 0.75rem;
+            text-align: center;
+        }
+
+        .main-content {
+            margin-left: 260px;
+            flex: 1;
+            min-height: 100vh;
+            width: calc(100% - 260px);
+        }
+
+        .topbar {
+            background: white;
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            box-shadow: var(--shadow-sm);
+            position: sticky;
+            top: 0;
+            z-index: 500;
+        }
+
+        .content {
+            padding: 2rem;
+        }
+
+        .page-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0;
+        }
+
+        .card {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: white;
+            box-shadow: var(--shadow-sm);
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+        }
+
+        .card-header {
+            background: var(--light);
+            border-bottom: 1px solid var(--border);
+            padding: 1.25rem 1.5rem;
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .card-body {
+            padding: 1.5rem;
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0 0 1.5rem 0;
+            position: relative;
+            padding-bottom: 0.5rem;
+        }
+
+        .section-title:after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 50px;
+            height: 3px;
+            background: var(--accent);
+            border-radius: 3px;
+        }
+
         .filter-section {
-            background-color: white;
-            border-radius: 10px;
+            background: white;
+            border-radius: var(--radius);
             padding: 20px;
             margin-bottom: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            box-shadow: var(--shadow-sm);
         }
-        
+
         .nav-pills .nav-link.active {
-            background-color: var(--solano-blue);
+            background-color: var(--accent);
         }
-        
+
         .nav-pills .nav-link {
-            color: var(--solano-dark);
+            color: var(--text-secondary);
+            border-radius: var(--radius);
         }
-        
+
         .badge-online {
-            background-color: #28a745;
+            background-color: var(--success);
         }
-        
+
         .badge-walkin {
-            background-color: var(--solano-orange);
+            background-color: var(--warning);
         }
-        
+
         .history-table th {
             font-weight: 600;
             font-size: 0.85rem;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            color: #6c757d;
+            color: var(--text-secondary);
+            background: var(--light);
+            border-bottom: 2px solid var(--border);
         }
-        
+
+        .history-table td {
+            border-bottom: 1px solid var(--border);
+            padding: 15px;
+        }
+
+        .table-hover tbody tr:hover {
+            background-color: rgba(37, 99, 235, 0.05);
+        }
+
         .dataTables_filter input {
-            border-radius: 20px;
-            padding: 5px 15px;
-            border: 1px solid #dee2e6;
+            border-radius: var(--radius);
+            padding: 8px 15px;
+            border: 1px solid var(--border);
         }
-        
+
         .dataTables_length select {
-            border-radius: 5px;
-            padding: 5px;
-            border: 1px solid #dee2e6;
+            border-radius: var(--radius);
+            padding: 5px 10px;
+            border: 1px solid var(--border);
         }
-        
+
         .btn-filter {
-            background-color: var(--solano-blue);
+            background-color: var(--accent);
             color: white;
-            border-radius: 5px;
-            padding: 8px 20px;
+            border-radius: var(--radius);
+            padding: 10px 20px;
             font-weight: 500;
+            border: none;
         }
-        
+
         .btn-filter:hover {
-            background-color: #003a75;
+            background-color: #1d4ed8;
             color: white;
         }
-        
-        .btn-export {
-            background-color: var(--solano-gold);
-            color: var(--solano-dark);
-            border-radius: 5px;
-            padding: 8px 20px;
+
+        .badge {
+            padding: 0.5rem 0.75rem;
+            border-radius: var(--radius);
             font-weight: 500;
+            font-size: 0.75rem;
         }
-        
-        .btn-export:hover {
-            background-color: #e6c200;
-            color: var(--solano-dark);
+
+        .form-control,
+        .form-select {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 0.75rem;
+            font-size: 0.875rem;
+            transition: all 0.2s ease;
         }
-        
-        .tab-content {
-            padding: 0;
+
+        .form-control:focus,
+        .form-select:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
         }
-        @media print {
-        body * {
-            visibility: hidden;
+
+        .form-label {
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
         }
-        .main-content, .main-content * {
-            visibility: visible;
+
+        .table {
+            background: white;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            margin: 0;
         }
-        .main-content {
-            position: absolute;
-            left: 0;
+
+        .table thead th {
+            background: var(--light);
+            border-bottom: 1px solid var(--border);
+            font-weight: 600;
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            padding: 1rem 0.75rem;
+            border-top: none;
+        }
+
+        .table tbody td {
+            padding: 0.875rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.875rem;
+            vertical-align: middle;
+        }
+
+        .table tbody tr:hover {
+            background: var(--lighter);
+        }
+
+        .table-responsive {
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .dataTables_filter input {
+            border-radius: var(--radius);
+            padding: 8px 15px;
+            border: 1px solid var(--border);
+        }
+
+        .dataTables_length select {
+            border-radius: var(--radius);
+            padding: 5px 10px;
+            border: 1px solid var(--border);
+        }
+
+        .btn {
+            border-radius: var(--radius);
+            font-weight: 500;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            border: none;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1d4ed8;
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #047857;
+            transform: translateY(-1px);
+        }
+
+        .btn-warning {
+            background: var(--warning);
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background: #b45309;
+            transform: translateY(-1px);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #b91c1c;
+            transform: translateY(-1px);
+        }
+
+        .btn-outline-secondary {
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            background: transparent;
+        }
+
+        .btn-outline-secondary:hover {
+            background: var(--light);
+            border-color: var(--secondary);
+        }
+
+        .btn-sm {
+            padding: 0.375rem 0.75rem;
+            font-size: 0.8125rem;
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
+            }
+
+            .sidebar.show {
+                transform: translateX(0);
+            }
+
+            .main-content {
+                margin-left: 0;
+                width: 100%;
+            }
+
+            .topbar {
+                padding: 1rem;
+            }
+
+            .content {
+                padding: 1rem;
+            }
+
+            .mobile-menu-btn {
+                display: block;
+                background: none;
+                border: none;
+                font-size: 1.25rem;
+                color: var(--text-primary);
+                cursor: pointer;
+                padding: 0.25rem;
+            }
+
+            .page-title {
+                font-size: 1.25rem;
+            }
+
+            .card-header {
+                padding: 1rem;
+                font-size: 1rem;
+            }
+
+            .card-body {
+                padding: 1rem;
+            }
+        }
+
+        @media (min-width: 769px) {
+            .mobile-menu-btn {
+                display: none;
+            }
+        }
+
+        /* Overlay for mobile */
+        .overlay {
+            position: fixed;
             top: 0;
+            left: 0;
             width: 100%;
-        }
-        .filter-section, .nav-pills, .card-header {
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
             display: none;
         }
-        table {
-            width: 100% !important;
+
+        .overlay.show {
+            display: block;
         }
-        .history-table th {
-            background-color: #f8f9fa !important;
-            color: #212529 !important;
+
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+            .main-content, .main-content * {
+                visibility: visible;
+            }
+            .main-content {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+            }
+            .filter-section, .nav-pills, .card-header {
+                display: none;
+            }
+            table {
+                width: 100% !important;
+            }
+            .history-table th {
+                background-color: #f8f9fa !important;
+                color: #212529 !important;
+            }
         }
-    }
     </style>
 </head>
 <body>
-            <?php include 'sidebar.php'; ?>
+    <div class="overlay" id="overlay"></div>
+    
     <div class="wrapper">
-        <div class="main-content">
-
-            <div class="container-fluid py-4">
-                <div class="row mb-4">
-                    <div class="col-12">
-                        <h2 class="fw-bold mb-0">Appointment History</h2>
+        <!-- Sidebar -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <img src="../image/logo.png" alt="Logo" style="width: 32px; height: 32px; object-fit: contain;">
+                    </div>
+                    <div>
+                        <h5>OASYS Admin</h5>
+                        <div class="version">Municipality of Solano</div>
                     </div>
                 </div>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="adminPanel.php">
+                    <i class="bi bi-house"></i>
+                    Dashboard
+                </a>
+                <a href="appointment.php">
+                    <i class="bi bi-calendar-check"></i>
+                    Appointments
+                </a>
+                <a href="walk_in.php">
+                    <i class="bi bi-person-walking"></i>
+                    Walk-ins
+                </a>
+                <a href="queue.php">
+                    <i class="bi bi-list-ol"></i>
+                    Queue
+                </a>
+                <a href="schedule.php">
+                    <i class="bi bi-calendar"></i>
+                    Schedule
+                </a>
+                <a href="announcement.php">
+                    <i class="bi bi-megaphone"></i>
+                    Announcement
+                </a>
+                <a href="history.php" class="active">
+                    <i class="bi bi-clock-history"></i>
+                    History
+                </a>
+                <a href="adminRegister.php">
+                    <i class="bi bi-person-plus"></i>
+                    Admin Registration
+                </a>
+                <a href="logout.php" class="text-danger">
+                    <i class="bi bi-box-arrow-right"></i>
+                    Logout
+                </a>
+            </nav>
+        </div>
 
+        <div class="main-content">
+            <!-- Topbar -->
+            <div class="topbar">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <button class="mobile-menu-btn d-md-none me-3" id="mobileMenuBtn">
+                            <i class="bi bi-list"></i>
+                        </button>
+                        <div>
+                            <h1 class="page-title">Appointment History</h1>
+                            <p class="text-muted mb-0 small d-none d-sm-block">View completed appointments and walk-ins</p>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center">
+                        <div class="d-none d-sm-inline me-2">
+                            <div class="text-muted small"><?= htmlspecialchars($admin_name) ?></div>
+                            <div class="text-muted small"><?= htmlspecialchars($admin_role) ?></div>
+                        </div>
+                        <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 36px; height: 36px;">
+                            <i class="bi bi-person-fill"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content">
                 <form method="GET" action="history.php">
                     <div class="filter-section">
                         <div class="row align-items-center">
@@ -371,6 +849,36 @@ $total_records = $total_online + $total_walkin;
     
     <script>
         $(document).ready(function() {
+            // Mobile menu functionality
+            const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('overlay');
+
+            if (mobileMenuBtn) {
+                mobileMenuBtn.addEventListener('click', function() {
+                    sidebar.classList.toggle('show');
+                    overlay.classList.toggle('show');
+                    document.body.style.overflow = sidebar.classList.contains('show') ? 'hidden' : '';
+                });
+            }
+
+            if (overlay) {
+                overlay.addEventListener('click', function() {
+                    sidebar.classList.remove('show');
+                    overlay.classList.remove('show');
+                    document.body.style.overflow = '';
+                });
+            }
+
+            // Close sidebar on window resize if desktop
+            window.addEventListener('resize', function() {
+                if (window.innerWidth >= 768) {
+                    sidebar.classList.remove('show');
+                    overlay.classList.remove('show');
+                    document.body.style.overflow = '';
+                }
+            });
+
             // Initialize DataTables
             $('#onlineTable').DataTable();
             $('#walkinTable').DataTable();

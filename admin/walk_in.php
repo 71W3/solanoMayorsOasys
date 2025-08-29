@@ -1,20 +1,93 @@
 <?php
-include 'connect.php';
+session_start();
+include "connect.php";
+
+// Get admin info from session or database
+$admin_name = "Admin";
+$admin_role = "Administrator";
+
+// Check for admin_id (from admin login) or user_id (from user login for admin users)
+$admin_id = null;
+if (isset($_SESSION['admin_id'])) {
+    $admin_id = $_SESSION['admin_id'];
+} elseif (isset($_SESSION['user_id']) && isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'mayor'])) {
+    $admin_id = $_SESSION['user_id'];
+}
+
+if ($admin_id) {
+    $stmt = $con->prepare("SELECT name, role FROM users WHERE id = ? AND role IN ('admin', 'mayor')");
+    $stmt->bind_param("i", $admin_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($admin = $result->fetch_assoc()) {
+        $admin_name = $admin['name'];
+        $admin_role = ucfirst($admin['role']);
+    }
+}
 
 $success = false;
 $success_message = '';
+$match_found = false;
+$matched_appointment = null;
+$walk_in_data = [
+    'name' => '',
+    'address' => '',
+    'purpose' => ''
+];
 
 // Handle form submission for new walk-in
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_walk_in'])) {
+    $walk_in_data['name'] = $con->real_escape_string($_POST['name']);
+    $walk_in_data['address'] = $con->real_escape_string($_POST['address']);
+    $walk_in_data['purpose'] = $con->real_escape_string($_POST['purpose']);
+    
+    // Check for an approved appointment with the same name
+    $check_appointment_query = "
+    SELECT 
+        a.*, 
+        u.name AS user_name
+    FROM appointments a 
+    JOIN users u ON a.user_id = u.id 
+    WHERE u.name = '{$walk_in_data['name']}' AND a.status_enum = 'approved' 
+    ORDER BY a.date DESC LIMIT 1";
+    $check_appointment_result = $con->query($check_appointment_query);
+    
+    if ($check_appointment_result && $check_appointment_result->num_rows > 0) {
+        $match_found = true;
+        $matched_appointment = $check_appointment_result->fetch_assoc();
+    } else {
+        // No match found, proceed to add the walk-in
+        $last_id_query = "SELECT MAX(id) as max_id FROM walk_in";
+        $result = $con->query($last_id_query);
+        $row = $result->fetch_assoc();
+        $next_id = ($row['max_id'] ?? 0) + 1;
+        $appointment_number = '#' . str_pad($next_id, 4, '0', STR_PAD_LEFT);
+        
+        $insert_query = "INSERT INTO walk_in (appointment_number, name, address, purpose, created_at, status) 
+                         VALUES ('$appointment_number', '{$walk_in_data['name']}', '{$walk_in_data['address']}', '{$walk_in_data['purpose']}', NOW(), 'waiting')";
+        
+        if ($con->query($insert_query)) {
+            $success = true;
+            $success_message = "Walk-in added successfully!";
+        } else {
+            $success = true;
+            $success_message = "Error adding walk-in: " . $con->error;
+        }
+    }
+}
+
+// New handler for "Add Anyway" button
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_anyway'])) {
     $name = $con->real_escape_string($_POST['name']);
     $address = $con->real_escape_string($_POST['address']);
     $purpose = $con->real_escape_string($_POST['purpose']);
     
-    // Generate appointment number
+    // Add the walk-in without checking for duplicates
     $last_id_query = "SELECT MAX(id) as max_id FROM walk_in";
     $result = $con->query($last_id_query);
     $row = $result->fetch_assoc();
-    $next_id = $row['max_id'] + 1;
+    $next_id = ($row['max_id'] ?? 0) + 1;
     $appointment_number = '#' . str_pad($next_id, 4, '0', STR_PAD_LEFT);
     
     $insert_query = "INSERT INTO walk_in (appointment_number, name, address, purpose, created_at, status) 
@@ -32,7 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_walk_in'])) {
 // Handle sending to queue with transaction
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['send_to_queue'])) {
     if (!empty($_POST['selected_walkins'])) {
-        $con->autocommit(FALSE); // Start transaction
+        $con->autocommit(FALSE);
         $success = true;
         $sent_appointments = [];
         $errors = [];
@@ -41,7 +114,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['send_to_queue'])) {
         foreach ($_POST['selected_walkins'] as $walk_in_id) {
             $walk_in_id = $con->real_escape_string($walk_in_id);
             
-            // Verify walk-in exists and is waiting
             $check_query = "SELECT id, appointment_number FROM walk_in WHERE id = '$walk_in_id' AND status = 'waiting'";
             $check_result = $con->query($check_query);
             
@@ -49,19 +121,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['send_to_queue'])) {
                 $walk_in = $check_result->fetch_assoc();
                 $sent_appointments[] = $walk_in['appointment_number'];
                 
-                // Insert into queue
                 $insert_queue_query = "INSERT INTO queue (walk_in_id, created_at) VALUES ('$walk_in_id', NOW())";
                 if (!$con->query($insert_queue_query)) {
                     $errors[] = "Failed to add to queue: " . $con->error;
                 }
                 
-                // Update status to complete
                 $update_status_query = "UPDATE walk_in SET status = 'complete' WHERE id = '$walk_in_id'";
                 if (!$con->query($update_status_query)) {
                     $errors[] = "Failed to update status: " . $con->error;
                 }
                 
-                // Add to walkin_history
                 $insert_history_query = "INSERT INTO walkin_history (walk_in_id, date) VALUES ('$walk_in_id', '$today')";
                 if (!$con->query($insert_history_query)) {
                     $errors[] = "Failed to add to history: " . $con->error;
@@ -79,22 +148,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['send_to_queue'])) {
             $success_message = "Errors occurred: " . implode("; ", $errors);
         }
         
-        $con->autocommit(TRUE); // End transaction
+        $con->autocommit(TRUE);
     } else {
         $success = true;
         $success_message = "Please select at least one walk-in to send to queue.";
     }
 }
 
-// Fetch all waiting walk-in appointments (only those not in queue and with waiting status)
+// Fetch all waiting walk-in appointments
 $walk_ins_query = "SELECT * FROM walk_in WHERE id NOT IN (SELECT walk_in_id FROM queue) AND status = 'waiting' ORDER BY created_at ASC";
 $walk_ins_result = $con->query($walk_ins_query);
-
-
-
-// Fetch waiting walk-ins
-$walk_ins_query = "SELECT * FROM walk_in WHERE status = 'waiting' ORDER BY created_at ASC";
-$walk_ins_result = mysqli_query($con, $walk_ins_query);
 
 // Get stats
 $total_walkins = 0;
@@ -115,7 +178,6 @@ if ($result) $complete_walkins = mysqli_fetch_row($result)[0];
 $result = mysqli_query($con, "SELECT COUNT(*) as count FROM walk_in WHERE DATE(created_at) = CURDATE()");
 if ($result) $today_walkins = mysqli_fetch_row($result)[0];
 
-// Check if queue table exists before querying
 $queue_check = mysqli_query($con, "SHOW TABLES LIKE 'queue'");
 if ($queue_check && mysqli_num_rows($queue_check) > 0) {
     $result = mysqli_query($con, "SELECT COUNT(*) as count FROM queue");
@@ -500,6 +562,29 @@ if ($queue_check && mysqli_num_rows($queue_check) > 0) {
             border-top: 1px solid var(--border);
             padding: 1rem 1.5rem;
         }
+        
+        /* New Styles for Right-Sliding Modal */
+        .modal.slide-right .modal-dialog {
+            transition: transform 0.3s ease-out;
+            transform: translateX(100%);
+            margin-right: 0;
+            margin-left: auto;
+            height: 100vh;
+            width: 500px;
+            max-width: 90%;
+        }
+
+        .modal.slide-right.show .modal-dialog {
+            transform: translateX(0);
+        }
+        
+        .modal.slide-right .modal-content {
+            border-radius: 0;
+            height: 100vh;
+            border-right: none;
+            border-top: none;
+            border-bottom: none;
+        }
 
         /* Form Controls */
         .form-control,
@@ -656,12 +741,11 @@ if ($queue_check && mysqli_num_rows($queue_check) > 0) {
     <div class="overlay" id="overlay"></div>
     
     <div class="wrapper">
-        <!-- Sidebar -->
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <div class="logo">
                     <div class="logo-icon">
-                        <i class="bi bi-sun"></i>
+                        <img src="../image/logo.png" alt="Logo" style="width: 32px; height: 32px; object-fit: contain;">
                     </div>
                     <div>
                         <h5>OASYS Admin</h5>
@@ -690,13 +774,17 @@ if ($queue_check && mysqli_num_rows($queue_check) > 0) {
                     <i class="bi bi-calendar"></i>
                     Schedule
                 </a>
-                <a href="#">
-                    <i class="bi bi-graph-up"></i>
-                    Reports
+                <a href="announcement.php">
+                    <i class="bi bi-megaphone"></i>
+                    Announcement
                 </a>
-                <a href="#">
-                    <i class="bi bi-gear"></i>
-                    Settings
+                <a href="history.php">
+                    <i class="bi bi-clock-history"></i>
+                    History
+                </a>
+                <a href="adminRegister.php">
+                    <i class="bi bi-person-plus"></i>
+                    Admin Registration
                 </a>
                 <a href="#">
                     <i class="bi bi-box-arrow-right"></i>
@@ -706,7 +794,6 @@ if ($queue_check && mysqli_num_rows($queue_check) > 0) {
         </div>
 
         <div class="main-content">
-            <!-- Topbar -->
             <div class="topbar">
                 <div class="d-flex justify-content-between align-items-center">
                     <div class="d-flex align-items-center">
@@ -719,7 +806,10 @@ if ($queue_check && mysqli_num_rows($queue_check) > 0) {
                         </div>
                     </div>
                     <div class="d-flex align-items-center">
-                        <span class="text-muted me-2 d-none d-sm-inline">Admin</span>
+                        <div class="d-none d-sm-inline me-2">
+                            <div class="text-muted small"><?= htmlspecialchars($admin_name) ?></div>
+                            <div class="text-muted small"><?= htmlspecialchars($admin_role) ?></div>
+                        </div>
                         <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 36px; height: 36px;">
                             <i class="bi bi-person-fill"></i>
                         </div>
@@ -736,7 +826,6 @@ if ($queue_check && mysqli_num_rows($queue_check) > 0) {
                     </div>
                 <?php endif; ?>
 
-                <!-- Stats Grid -->
                 <div class="stats-grid">
                     <div class="stats-card">
                         <div class="stats-card-content">
@@ -799,27 +888,17 @@ if ($queue_check && mysqli_num_rows($queue_check) > 0) {
                     </div>
                 </div>
 
-                <!-- Main Content -->
-               <div class="container-fluid">
+                <div class="container-fluid">
     <div class="row">
         
         
         <div class="col-md-9 ms-sm-auto col-lg-10 px-md-4 main-content">
-            <?php if ($success): ?>
-                <div class="alert alert-success alert-dismissible fade show mt-3" role="alert" id="success-alert">
-                    <?= $success_message ?>
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                </div>
-            <?php endif; ?>
-
             <h1 class="mb-4 mt-3">Walk-in Appointments</h1>
 
-            <!-- Button to trigger modal -->
             <button type="button" class="btn btn-primary mb-3" data-bs-toggle="modal" data-bs-target="#addWalkInModal">
                 <i class="bi bi-plus-circle"></i> Add Walk-in Appointment
             </button>
 
-            <!-- Walk-in List -->
             <form method="post" action="walk_in.php">
                 <div class="table-responsive">
                     <table class="table table-striped table-hover">
@@ -869,11 +948,10 @@ if ($queue_check && mysqli_num_rows($queue_check) > 0) {
     </div>
 </div>
 
-    <!-- Add Walk-in Modal -->
-<div class="modal fade" id="addWalkInModal" tabindex="-1" aria-labelledby="addWalkInModalLabel" aria-hidden="true">
+    <div class="modal fade" id="addWalkInModal" tabindex="-1" aria-labelledby="addWalkInModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="post" action="walk_in.php">
+            <form method="post" action="walk_in.php" id="addWalkInForm">
                 <div class="modal-header">
                     <h5 class="modal-title" id="addWalkInModalLabel">Add New Walk-in</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -918,9 +996,86 @@ if ($queue_check && mysqli_num_rows($queue_check) > 0) {
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    <button type="submit" name="add_walk_in" class="btn btn-primary">Add Walk-in</button>
+                    <button type="submit" name="add_walk_in" class="btn btn-primary" id="addWalkInBtn">Add Walk-in</button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade slide-right" id="matchAppointmentModal" tabindex="-1" aria-labelledby="matchAppointmentModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-fullscreen-sm-down">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="matchAppointmentModalLabel">Appointment Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <?php if ($matched_appointment): ?>
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <span class="badge bg-success">Confirmed</span>
+                    <span class="text-muted small">Complaint</span>
+                </div>
+                <div class="mb-4">
+                    <p class="mb-1"><small class="text-muted">Date</small></p>
+                    <h6 class="fw-bold"><?= date('F d, Y', strtotime($matched_appointment['date'])) ?></h6>
+                </div>
+                <div class="mb-4">
+                    <p class="mb-1"><small class="text-muted">Time</small></p>
+                    <h6 class="fw-bold"><?= date('h:i A', strtotime($matched_appointment['time'])) ?></h6>
+                </div>
+                <div class="mb-4">
+                    <p class="mb-1"><small class="text-muted">Service</small></p>
+                    <h6 class="fw-bold"><?= htmlspecialchars($matched_appointment['purpose']) ?></h6>
+                </div>
+                <div class="mb-4">
+                    <p class="mb-1"><small class="text-muted">Reference ID</small></p>
+                    <h6 class="fw-bold">APP-<?= htmlspecialchars($matched_appointment['id']) ?></h6>
+                </div>
+                <p>An approved appointment with the name **<?= htmlspecialchars($matched_appointment['user_name']) ?>** already exists. Please check their confirmed appointment details.</p>
+                
+                <?php if (!empty($matched_appointment['attachments'])): ?>
+                <div class="mb-4">
+                    <p class="mb-1"><small class="text-muted">Attachments</small></p>
+                    <?php
+                        $attachments = explode(',', $matched_appointment['attachments']);
+                        foreach ($attachments as $attachment):
+                            $fileName = basename($attachment);
+                    ?>
+                        <a href="#" class="d-block mb-1 text-decoration-none attachment-link" data-bs-toggle="modal" data-bs-target="#attachmentModal" data-attachment-url="<?= htmlspecialchars($attachment) ?>">
+                            <i class="bi bi-file-earmark me-1"></i> <?= htmlspecialchars($fileName) ?>
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
+                <?php endif; ?>
+            </div>
+            <div class="modal-footer">
+                <form method="post" action="walk_in.php">
+                    <input type="hidden" name="add_anyway" value="1">
+                    <input type="hidden" name="name" value="<?= htmlspecialchars($walk_in_data['name']) ?>">
+                    <input type="hidden" name="address" value="<?= htmlspecialchars($walk_in_data['address']) ?>">
+                    <input type="hidden" name="purpose" value="<?= htmlspecialchars($walk_in_data['purpose']) ?>">
+                    <button type="submit" class="btn btn-warning me-2">Add Anyway</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="attachmentModal" tabindex="-1" aria-labelledby="attachmentModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="attachmentModalLabel">Attachment Preview</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center">
+                <div id="attachment-preview-content">
+                    <p>Loading attachment...</p>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -928,8 +1083,6 @@ if ($queue_check && mysqli_num_rows($queue_check) > 0) {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('Initializing walk-in page...');
-            
             // Mobile menu toggle
             const mobileMenuBtn = document.getElementById('mobileMenuBtn');
             const sidebar = document.getElementById('sidebar');
@@ -963,116 +1116,37 @@ if ($queue_check && mysqli_num_rows($queue_check) > 0) {
             // Checkbox functionality
             const rowCheckboxes = document.querySelectorAll('.row-checkbox');
             const selectAllCheckbox = document.getElementById('selectAll');
-            const selectedCountSpan = document.getElementById('selectedCount');
-            const sendToQueueBtn = document.getElementById('sendToQueueBtn');
-
-            console.log('Found checkboxes:', rowCheckboxes.length);
-
+            
             function updateSelectedCount() {
                 const checkedBoxes = document.querySelectorAll('.row-checkbox:checked');
                 const count = checkedBoxes.length;
                 
-                console.log('Selected count:', count);
-                
-                // Update selected count display
+                const selectedCountSpan = document.getElementById('selectedCount');
                 if (selectedCountSpan) {
                     selectedCountSpan.textContent = count;
                 }
-                
-                // Enable/disable the send to queue button
-                if (sendToQueueBtn) {
-                    sendToQueueBtn.disabled = count === 0;
-                }
-
-                // Update select all checkbox state
-                if (selectAllCheckbox && rowCheckboxes.length > 0) {
-                    const totalCheckboxes = rowCheckboxes.length;
-                    if (count === 0) {
-                        selectAllCheckbox.checked = false;
-                        selectAllCheckbox.indeterminate = false;
-                    } else if (count === totalCheckboxes) {
-                        selectAllCheckbox.checked = true;
-                        selectAllCheckbox.indeterminate = false;
-                    } else {
-                        selectAllCheckbox.checked = false;
-                        selectAllCheckbox.indeterminate = true;
-                    }
-                }
             }
 
-            // Individual checkbox change handlers
             rowCheckboxes.forEach(function(checkbox) {
                 checkbox.addEventListener('change', function() {
-                    console.log('Checkbox changed:', this.value, this.checked);
-                    
-                    const row = this.closest('tr');
-                    if (this.checked) {
-                        row.classList.add('selected-row');
-                    } else {
-                        row.classList.remove('selected-row');
-                    }
+                    this.closest('tr').classList.toggle('selected-row', this.checked);
                     updateSelectedCount();
                 });
             });
 
-            // Select all functionality
             if (selectAllCheckbox) {
                 selectAllCheckbox.addEventListener('change', function() {
-                    console.log('Select all changed:', this.checked);
-                    
                     const isChecked = this.checked;
                     rowCheckboxes.forEach(function(checkbox) {
                         checkbox.checked = isChecked;
-                        const row = checkbox.closest('tr');
-                        if (isChecked) {
-                            row.classList.add('selected-row');
-                        } else {
-                            row.classList.remove('selected-row');
-                        }
+                        checkbox.closest('tr').classList.toggle('selected-row', isChecked);
                     });
                     updateSelectedCount();
                 });
             }
 
-            // Initial count update
             updateSelectedCount();
-
-            // Form validation - prevent submission if no items selected
-            const walkInForm = document.getElementById('walkInForm');
-            if (walkInForm) {
-                walkInForm.addEventListener('submit', function(e) {
-                    console.log('Form submitted');
-                    
-                    // Check if this is the send to queue button
-                    if (e.submitter && e.submitter.name === 'send_to_queue') {
-                        const checkedBoxes = document.querySelectorAll('.row-checkbox:checked');
-                        console.log('Checked boxes for queue:', checkedBoxes.length);
-                        
-                        if (checkedBoxes.length === 0) {
-                            e.preventDefault();
-                            alert('Please select at least one walk-in to send to queue.');
-                            return false;
-                        }
-                        
-                        // Show loading state
-                        if (sendToQueueBtn) {
-                            sendToQueueBtn.disabled = true;
-                            sendToQueueBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Sending...';
-                        }
-                        
-                        // Show confirmation
-                        if (!confirm('Are you sure you want to send ' + checkedBoxes.length + ' walk-in(s) to the queue?')) {
-                            e.preventDefault();
-                            if (sendToQueueBtn) {
-                                sendToQueueBtn.disabled = false;
-                                sendToQueueBtn.innerHTML = '<i class="bi bi-send me-2"></i>Send Selected to Queue';
-                            }
-                            return false;
-                        }
-                    }
-                });
-            }
-
+            
             // Auto-dismiss success alert after 5 seconds
             const successAlert = document.getElementById('success-alert');
             if (successAlert) {
@@ -1081,51 +1155,42 @@ if ($queue_check && mysqli_num_rows($queue_check) > 0) {
                     alert.close();
                 }, 5000);
             }
-
-            // Add walk-in form handling
-            const addWalkInForm = document.getElementById('addWalkInForm');
-            const addWalkInBtn = document.getElementById('addWalkInBtn');
-
-            if (addWalkInForm && addWalkInBtn) {
-                addWalkInForm.addEventListener('submit', function(e) {
-                    console.log('Add walk-in form submitted');
+            
+            // Re-revised Logic for Modal Display
+            <?php if ($match_found): ?>
+                const matchAppointmentModal = new bootstrap.Modal(document.getElementById('matchAppointmentModal'));
+                matchAppointmentModal.show();
+            <?php endif; ?>
+            
+            // Attachment Modal Logic
+            const attachmentModal = document.getElementById('attachmentModal');
+            if (attachmentModal) {
+                attachmentModal.addEventListener('show.bs.modal', function(event) {
+                    const link = event.relatedTarget;
+                    const attachmentUrl = link.getAttribute('data-attachment-url');
+                    const previewContent = document.getElementById('attachment-preview-content');
                     
-                    // Basic validation
-                    const name = document.getElementById('name').value.trim();
-                    const address = document.getElementById('address').value;
-                    const purpose = document.getElementById('purpose').value.trim();
+                    // Clear previous content
+                    previewContent.innerHTML = '<p>Loading attachment...</p>';
                     
-                    if (!name || !address || !purpose) {
-                        e.preventDefault();
-                        alert('Please fill in all required fields.');
-                        return false;
-                    }
+                    const fileName = attachmentUrl.split('/').pop().toLowerCase();
+                    const fileExtension = fileName.split('.').pop();
                     
-                    if (this.checkValidity()) {
-                        addWalkInBtn.disabled = true;
-                        addWalkInBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Adding...';
+                    if (['jpg', 'jpeg', 'png', 'gif', 'svg'].includes(fileExtension)) {
+                        previewContent.innerHTML = `<img src="${attachmentUrl}" class="img-fluid" alt="Attachment Preview">`;
+                    } else if (['pdf'].includes(fileExtension)) {
+                        previewContent.innerHTML = `<iframe src="${attachmentUrl}" style="width:100%; height:80vh;" frameborder="0"></iframe>`;
+                    } else {
+                        previewContent.innerHTML = `
+                            <div class="empty-state">
+                                <i class="bi bi-file-earmark-arrow-down"></i>
+                                <h6>Unsupported file type</h6>
+                                <p>This file type cannot be previewed. Please <a href="${attachmentUrl}" target="_blank" class="text-decoration-none">download the file</a> to view it.</p>
+                            </div>
+                        `;
                     }
                 });
             }
-
-            // Clear modal form when closed
-            const addWalkInModal = document.getElementById('addWalkInModal');
-            if (addWalkInModal) {
-                addWalkInModal.addEventListener('hidden.bs.modal', function() {
-                    const form = this.querySelector('form');
-                    if (form) {
-                        form.reset();
-                        form.classList.remove('was-validated');
-                    }
-                    // Reset button state
-                    if (addWalkInBtn) {
-                        addWalkInBtn.disabled = false;
-                        addWalkInBtn.innerHTML = '<i class="bi bi-plus-circle me-2"></i>Add Walk-in';
-                    }
-                });
-            }
-
-            console.log('Walk-in page initialized successfully');
         });
     </script>
 </body>
