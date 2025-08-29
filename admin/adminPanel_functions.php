@@ -1,5 +1,6 @@
 <?php
 // Improved time elapsed function with timezone consideration
+// ehh ano naman yung function na to?
 if (!function_exists('time_elapsed_string')) {
     function time_elapsed_string($datetime, $full = false) {
         if (empty($datetime)) {
