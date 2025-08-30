@@ -668,7 +668,7 @@ $total_records = $total_online + $total_walkin;
                     <i class="bi bi-person-plus"></i>
                     Admin Registration
                 </a>
-                <a href="logout.php" class="text-danger">
+                <a href="logoutAdmin.php" class="text-danger">
                     <i class="bi bi-box-arrow-right"></i>
                     Logout
                 </a>

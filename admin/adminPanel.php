@@ -5,6 +5,7 @@ include "connect.php";
 include "function.php";
 include "adminPanel_functions.php";
 
+
 // Initialize admin panel with timezone, admin info, and dashboard stats
 $adminData = initializeAdminPanel($con);
 
@@ -24,6 +25,10 @@ $weeklyStats = $adminData['weeklyStats'];
 $dailyChartData = $adminData['dailyChartData'];
 $weeklyChartData = $adminData['weeklyChartData'];
 $statusChartData = $adminData['statusChartData'];
+$activityStats = $adminData['activityStats'];
+$adminActivity = $adminData['adminActivity'];
+$frontdeskActivity = $adminData['frontdeskActivity'];
+$todayActivity = $adminData['todayActivity'];
 ?>
 
 <!DOCTYPE html>
@@ -88,7 +93,7 @@ $statusChartData = $adminData['statusChartData'];
                     <i class="bi bi-person-plus"></i>
                     Admin Registration
                 </a>
-                <a href="logout.php" class="text-danger">
+                <a href="logoutAdmin.php" class="text-danger">
                     <i class="bi bi-box-arrow-right"></i>
                     Logout
                 </a>
@@ -207,46 +212,99 @@ $statusChartData = $adminData['statusChartData'];
                     <div class="col-lg-4">
                         <div class="card">
                             <div class="card-header d-flex justify-content-between align-items-center">
-                                <h2 class="section-title mb-0">Recent Activity</h2>
-                                <a href="#" class="btn btn-sm btn-outline-primary">View All</a>
+                                <h2 class="section-title mb-0">Activity Log</h2>
+                                <a href="#" class="btn btn-sm btn-outline-primary" onclick="showFullActivityLog()">View All</a>
                             </div>
                             <div class="card-body">
                                 <div class="activity-list">
-    <?php if ($recentActivity && isset($recentActivity->num_rows) && $recentActivity->num_rows > 0): ?>
-        <?php while ($row = $recentActivity->fetch_assoc()): ?>
-            <?php
-                $status = strtolower($row['status']);
-                $icon = match($status) {
-                    'completed' => 'bi-check-circle',
-                    'approved' => 'bi-person-check',
-                    'pending' => 'bi-hourglass-split',
-                    'cancelled' => 'bi-x-circle',
-                    default => 'bi-info-circle',
-                };
-                $timeAgo = isset($row['last_updated']) ? 
-                    time_elapsed_string($row['last_updated']) : 
-                    'Recently';
-            ?>
-            <div class="activity-item">
-                <div class="activity-icon">
-                    <i class="bi <?= $icon ?>"></i>
-                </div>
-                <div class="activity-content">
-                    <div class="activity-title"><?= ucfirst($status) ?> Appointment</div>
-                    <div class="activity-info">
-                        <?= htmlspecialchars($row['purpose']) ?> for <?= htmlspecialchars($row['resident_name']) ?>
-                    </div>
-                    <div class="activity-time"><?= $timeAgo ?></div>
-                </div>
-            </div>
-        <?php endwhile; ?>
-    <?php else: ?>
-        <div class="text-center py-4">
-            <i class="bi bi-clock-history display-6 text-muted"></i>
-            <p class="text-muted mt-2 mb-0">No recent activity</p>
-        </div>
-    <?php endif; ?>
-</div>
+                                    <?php if ($recentActivity && isset($recentActivity->num_rows) && $recentActivity->num_rows > 0): ?>
+                                        <?php 
+                                        $count = 0;
+                                        while (($row = $recentActivity->fetch_assoc()) && $count < 5): 
+                                            $count++;
+                                            // Check if this is from activity log or fallback data
+                                            if (isset($row['action_type'])) {
+                                                // Activity log data
+                                                $actionType = $row['action_type'];
+                                                $userName = $row['user_name'];
+                                                $userRole = $row['user_role'];
+                                                $description = $row['action_description'];
+                                                $timeAgo = time_elapsed_string($row['created_at']);
+                                                
+                                                // Determine icon based on action type
+                                                $icon = match($actionType) {
+                                                    'login' => 'bi-box-arrow-in-right',
+                                                    'logout' => 'bi-box-arrow-left',
+                                                    'appointment_approved' => 'bi-check-circle',
+                                                    'appointment_declined' => 'bi-x-circle',
+                                                    'appointment_rescheduled' => 'bi-calendar-event',
+                                                    'appointment_completed' => 'bi-check2-all',
+                                                    'walk_in_registered' => 'bi-person-plus',
+                                                    'queue_management' => 'bi-list-ol',
+                                                    'schedule_change' => 'bi-calendar-check',
+                                                    'announcement_created' => 'bi-megaphone',
+                                                    'user_created' => 'bi-person-plus',
+                                                    default => 'bi-info-circle',
+                                                };
+                                                
+                                                $badgeClass = match($userRole) {
+                                                    'admin' => 'bg-primary',
+                                                    'frontdesk' => 'bg-success',
+                                                    'mayor' => 'bg-warning',
+                                                    'superadmin' => 'bg-danger',
+                                                    default => 'bg-secondary',
+                                                };
+                                        ?>
+                                        <div class="activity-item">
+                                            <div class="activity-icon">
+                                                <i class="bi <?= $icon ?>"></i>
+                                            </div>
+                                            <div class="activity-content">
+                                                <div class="activity-title d-flex justify-content-between align-items-center">
+                                                    <span><?= ucwords(str_replace('_', ' ', $actionType)) ?></span>
+                                                    <span class="badge <?= $badgeClass ?> badge-sm"><?= ucfirst($userRole) ?></span>
+                                                </div>
+                                                <div class="activity-info">
+                                                    <strong><?= htmlspecialchars($userName) ?></strong>: <?= htmlspecialchars($description) ?>
+                                                </div>
+                                                <div class="activity-time"><?= $timeAgo ?></div>
+                                            </div>
+                                        </div>
+                                        <?php } else { 
+                                            // Fallback appointment data
+                                            $status = strtolower($row['status']);
+                                            $icon = match($status) {
+                                                'completed' => 'bi-check-circle',
+                                                'approved' => 'bi-person-check',
+                                                'pending' => 'bi-hourglass-split',
+                                                'cancelled' => 'bi-x-circle',
+                                                default => 'bi-info-circle',
+                                            };
+                                            $timeAgo = isset($row['last_updated']) ? 
+                                                time_elapsed_string($row['last_updated']) : 
+                                                'Recently';
+                                        ?>
+                                        <div class="activity-item">
+                                            <div class="activity-icon">
+                                                <i class="bi <?= $icon ?>"></i>
+                                            </div>
+                                            <div class="activity-content">
+                                                <div class="activity-title"><?= ucfirst($status) ?> Appointment</div>
+                                                <div class="activity-info">
+                                                    <?= htmlspecialchars($row['purpose']) ?> for <?= htmlspecialchars($row['resident_name']) ?>
+                                                </div>
+                                                <div class="activity-time"><?= $timeAgo ?></div>
+                                            </div>
+                                        </div>
+                                        <?php } ?>
+                                        <?php endwhile; ?>
+                                    <?php else: ?>
+                                        <div class="text-center py-4">
+                                            <i class="bi bi-clock-history display-6 text-muted"></i>
+                                            <p class="text-muted mt-2 mb-0">No recent activity</p>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -361,6 +419,114 @@ $statusChartData = $adminData['statusChartData'];
                         </div>
                     </div>
                 </div>
+                
+                <!-- Activity Log Section -->
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h2 class="section-title mb-0">Comprehensive Activity Log</h2>
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-sm btn-outline-primary" onclick="filterActivityByRole('all')">All</button>
+                                    <button class="btn btn-sm btn-outline-primary" onclick="filterActivityByRole('admin')">Admin</button>
+                                    <button class="btn btn-sm btn-outline-primary" onclick="filterActivityByRole('frontdesk')">Front Desk</button>
+                                    <button class="btn btn-sm btn-outline-primary" onclick="filterActivityByRole('mayor')">Mayor</button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <!-- Activity Statistics -->
+                                <div class="row mb-4">
+                                    <div class="col-md-3">
+                                        <div class="text-center">
+                                            <h4 class="text-primary"><?= $activityStats['total'] ?? 0 ?></h4>
+                                            <p class="text-muted mb-0">Total Activities</p>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="text-center">
+                                            <h4 class="text-success"><?= $activityStats['recent_24h'] ?? 0 ?></h4>
+                                            <p class="text-muted mb-0">Last 24 Hours</p>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="text-center">
+                                            <h4 class="text-info"><?= $activityStats['by_role']['admin'] ?? 0 ?></h4>
+                                            <p class="text-muted mb-0">Admin Actions</p>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="text-center">
+                                            <h4 class="text-warning"><?= $activityStats['by_role']['frontdesk'] ?? 0 ?></h4>
+                                            <p class="text-muted mb-0">Front Desk Actions</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Activity Table -->
+                                <div class="table-responsive">
+                                    <table class="table table-hover" id="activityTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Time</th>
+                                                <th>Name</th>
+                                                <th>Role</th>
+                                                <th>Action</th>
+                                                <th>Description</th>
+                                                <th>IP Address</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php if ($todayActivity && isset($todayActivity->num_rows) && $todayActivity->num_rows > 0): ?>
+                                                <?php while ($row = $todayActivity->fetch_assoc()): ?>
+                                                    <tr class="activity-row" data-role="<?= htmlspecialchars($row['user_role']) ?>">
+                                                        <td>
+                                                            <small class="text-muted">
+                                                                <?= date('M d, H:i', strtotime($row['created_at'])) ?>
+                                                            </small>
+                                                        </td>
+                                                        <td>
+                                                            <strong><?= htmlspecialchars($row['user_name']) ?></strong>
+                                                        </td>
+                                                        <td>
+                                                            <?php
+                                                                $badgeClass = match($row['user_role']) {
+                                                                    'admin' => 'bg-primary',
+                                                                    'frontdesk' => 'bg-success',
+                                                                    'mayor' => 'bg-warning',
+                                                                    'superadmin' => 'bg-danger',
+                                                                    default => 'bg-secondary',
+                                                                };
+                                                            ?>
+                                                            <span class="badge <?= $badgeClass ?>"><?= ucfirst($row['user_role']) ?></span>
+                                                        </td>
+                                                        <td>
+                                                            <?= ucwords(str_replace('_', ' ', $row['action_type'])) ?>
+                                                        </td>
+                                                        <td>
+                                                            <div class="text-truncate" style="max-width: 300px;" title="<?= htmlspecialchars($row['action_description']) ?>">
+                                                                <?= htmlspecialchars($row['action_description']) ?>
+                                                            </div>
+                                                        </td>
+                                                        <td>
+                                                            <small class="text-muted"><?= htmlspecialchars($row['ip_address']) ?></small>
+                                                        </td>
+                                                    </tr>
+                                                <?php endwhile; ?>
+                                            <?php else: ?>
+                                                <tr>
+                                                    <td colspan="6" class="text-center py-4">
+                                                        <i class="bi bi-clock-history display-6 text-muted"></i>
+                                                        <p class="text-muted mt-2 mb-0">No activity recorded today</p>
+                                                    </td>
+                                                </tr>
+                                            <?php endif; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <footer class="footer">
@@ -389,5 +555,45 @@ $statusChartData = $adminData['statusChartData'];
     </script>
     
     <script src="adminPanel.js"></script>
+    
+    <!-- Activity Log JavaScript -->
+    <script>
+        // Filter activity by role
+        function filterActivityByRole(role) {
+            const rows = document.querySelectorAll('.activity-row');
+            const buttons = document.querySelectorAll('.btn-outline-primary');
+            
+            // Update button states
+            buttons.forEach(btn => {
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-outline-primary');
+            });
+            
+            // Highlight selected button
+            event.target.classList.remove('btn-outline-primary');
+            event.target.classList.add('btn-primary');
+            
+            // Filter rows
+            rows.forEach(row => {
+                if (role === 'all' || row.getAttribute('data-role') === role) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+        
+        // Show full activity log modal
+        function showFullActivityLog() {
+            // You can implement a modal here or redirect to a dedicated page
+            alert('Full activity log feature coming soon! This will show all activities with pagination and advanced filtering.');
+        }
+        
+        // Auto-refresh activity log every 30 seconds
+        setInterval(() => {
+            // You can implement AJAX refresh here
+            console.log('Activity log auto-refresh triggered');
+        }, 30000);
+    </script>
 </body>
 </html>

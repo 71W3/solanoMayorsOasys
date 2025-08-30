@@ -1,4 +1,6 @@
 <?php
+session_start();
+
 // Function to get admin info from session or database
 function getAdminInfo($con) {
     $admin_name = "Admin";
@@ -67,7 +69,12 @@ function handleAppointmentAction($con, $app_id, $action, $additional_data = []) 
         } elseif ($action == 'cancel') {
             return handleAppointmentCancellation($con, $app_id, $additional_data);
         } elseif ($action == 'complete') {
-            return handleAppointmentCompletion($con, $app_id);
+            // Get admin information from session if available
+            $admin_id = $_SESSION['admin_id'] ?? $_SESSION['user_id'] ?? null;
+            $admin_name = $_SESSION['admin_name'] ?? $_SESSION['user_full_name'] ?? 'Unknown Admin';
+            $admin_role = $_SESSION['admin_role'] ?? $_SESSION['role'] ?? 'admin';
+            
+            return handleAppointmentCompletion($con, $app_id, $admin_id, $admin_name, $admin_role);
         } elseif ($action == 'reschedule') {
             return handleAppointmentReschedule($con, $app_id, $additional_data);
         } else {
@@ -188,7 +195,14 @@ function handleAppointmentCancellation($con, $app_id, $additional_data) {
 }
 
 // Function to handle appointment completion
-function handleAppointmentCompletion($con, $app_id) {
+function handleAppointmentCompletion($con, $app_id, $admin_id = null, $admin_name = null, $admin_role = null) {
+    // Get appointment details for logging
+    $stmt = $con->prepare("SELECT purpose FROM appointments WHERE id = ?");
+    $stmt->bind_param("i", $app_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $appointment = $result->fetch_assoc();
+    
     // Update appointment status to 'completed'
     $stmt = $con->prepare("UPDATE appointments SET status_enum = 'completed', updated_at = NOW() WHERE id = ?");
     $stmt->bind_param("i", $app_id);
@@ -198,6 +212,20 @@ function handleAppointmentCompletion($con, $app_id) {
     $stmt = $con->prepare("DELETE FROM schedule WHERE app_id = ?");
     $stmt->bind_param("i", $app_id);
     $stmt->execute();
+
+    // Log activity for superadmin monitoring if admin info is provided
+    if ($admin_id && $admin_name && $admin_role) {
+        include_once "activity_logger.php";
+        logAppointmentCompletion(
+            $con, 
+            $admin_id, 
+            $admin_name, 
+            $admin_role, 
+            $app_id, 
+            'Resident', 
+            $appointment['purpose']
+        );
+    }
 
     $con->commit();
     
