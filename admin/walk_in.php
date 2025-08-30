@@ -1,6 +1,7 @@
 <?php
 session_start();
 include "connect.php";
+include "activity_logger.php"; // Include activity logger
 
 // Get admin info from session or database
 $admin_name = "Admin";
@@ -70,6 +71,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_walk_in'])) {
         if ($con->query($insert_query)) {
             $success = true;
             $success_message = "Walk-in added successfully!";
+            
+            // Log activity for superadmin monitoring
+            logWalkInRegistration(
+                $con, 
+                $admin_id, 
+                $admin_name, 
+                $admin_role, 
+                $walk_in_data['name'], 
+                $walk_in_data['purpose']
+            );
         } else {
             $success = true;
             $success_message = "Error adding walk-in: " . $con->error;
@@ -96,6 +107,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_anyway'])) {
     if ($con->query($insert_query)) {
         $success = true;
         $success_message = "Walk-in added successfully!";
+        
+        // Log activity for superadmin monitoring
+        logWalkInRegistration(
+            $con, 
+            $admin_id, 
+            $admin_name, 
+            $admin_role, 
+            $name, 
+            $purpose
+        );
     } else {
         $success = true;
         $success_message = "Error adding walk-in: " . $con->error;

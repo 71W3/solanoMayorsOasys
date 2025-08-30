@@ -1,8 +1,9 @@
 <?php
 session_start();
 include "connect.php";
+include "activity_logger.php"; // Include activity logger
 
-$_SESSION['admin_logged_in'] = true;
+// Session validation handled by adminPanel_functions.php
 
 // Check if appointment_id is provided
 if (!isset($_GET['id'])) {
@@ -73,6 +74,25 @@ if (isset($_POST['action']) && $_POST['action'] === 'reschedule') {
         );
 
         $con->commit();
+        
+        // Log activity for superadmin monitoring
+        $admin_id = $_SESSION['admin_id'] ?? $_SESSION['user_id'] ?? null;
+        $admin_name = $_SESSION['admin_name'] ?? $_SESSION['user_full_name'] ?? 'Unknown Admin';
+        $admin_role = $_SESSION['admin_role'] ?? $_SESSION['role'] ?? 'admin';
+        
+        if ($admin_id) {
+            logAppointmentReschedule(
+                $con, 
+                $admin_id, 
+                $admin_name, 
+                $admin_role, 
+                $appointment_id, 
+                $appointment['user_name'], 
+                $appointment['purpose'], 
+                $old_date, 
+                $new_date
+            );
+        }
 
         if ($email_result['success']) {
             $_SESSION['message'] = "Appointment #$appointment_id rescheduled successfully and email notification sent to " . $appointment['user_email'] . ". 🗓️";

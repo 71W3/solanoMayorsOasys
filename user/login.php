@@ -15,6 +15,11 @@ ini_set('display_errors', 1);
 require_once 'db_config.php';
 $conn = getDB();
 
+// Include activity logger for admin/frontdesk users
+if (file_exists('../admin/activity_logger.php')) {
+    require_once '../admin/activity_logger.php';
+}
+
 // Login logic
 $login_error = "";
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login'])) {
@@ -47,6 +52,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login'])) {
                     $_SESSION['login_success'] = true;
                     $_SESSION['user_full_name'] = $user['name'];
                     $_SESSION['role'] = $user['role']; // Add role to session
+                    
+                    // Log login activity for admin/frontdesk users
+                    if (in_array($user['role'], ['admin', 'frontdesk', 'mayor', 'superadmin']) && function_exists('logLogin')) {
+                        logLogin($conn, $user['id'], $user['name'], $user['role']);
+                    }
                     
                     // Redirect based on role
                     if ($user['role'] === 'admin') {

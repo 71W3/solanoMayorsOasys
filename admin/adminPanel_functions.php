@@ -1,4 +1,7 @@
 <?php
+// Include activity logger
+require_once 'activity_logger.php';
+
 // Improved time elapsed function with timezone consideration
 // ehh ano naman yung function na to?
 if (!function_exists('time_elapsed_string')) {
@@ -113,15 +116,20 @@ function getDashboardStats($con) {
             $stats['mayorsAppointments']->num_rows = 0;
         }
 
-        // Fetch recent activity with better time handling
-        $stats['recentActivity'] = $con->query("
-            SELECT a.purpose, u.name AS resident_name, a.status_enum as status, 
-                   COALESCE(a.updated_at, a.created_at, NOW()) as last_updated
-            FROM appointments a
-            JOIN users u ON a.user_id = u.id
-            ORDER BY COALESCE(a.updated_at, a.created_at, NOW()) DESC
-            LIMIT 5
-        ");
+        // Fetch recent activity from activity log
+        $stats['recentActivity'] = getRecentActivity($con, 5);
+        
+        // If no activity log data, fall back to appointment data
+        if (!$stats['recentActivity'] || $stats['recentActivity']->num_rows == 0) {
+            $stats['recentActivity'] = $con->query("
+                SELECT a.purpose, u.name AS resident_name, a.status_enum as status, 
+                       COALESCE(a.updated_at, a.created_at, NOW()) as last_updated
+                FROM appointments a
+                JOIN users u ON a.user_id = u.id
+                ORDER BY COALESCE(a.updated_at, a.created_at, NOW()) DESC
+                LIMIT 5
+            ");
+        }
 
         if (!$stats['recentActivity']) {
             $stats['recentActivity'] = new stdClass();
@@ -242,6 +250,19 @@ function getDashboardStats($con) {
     return $stats;
 }
 
+// Function to get comprehensive activity data for admin panel
+function getAdminPanelActivityData($con) {
+    $activityData = [
+        'recentActivity' => getRecentActivity($con, 20),
+        'activityStats' => getActivityStats($con),
+        'adminActivity' => getActivityByRole($con, 'admin', 10),
+        'frontdeskActivity' => getActivityByRole($con, 'frontdesk', 10),
+        'todayActivity' => getActivityByDateRange($con, date('Y-m-d'), date('Y-m-d'), 50)
+    ];
+    
+    return $activityData;
+}
+
 // Function to initialize admin panel with timezone, admin info, and dashboard stats
 function initializeAdminPanel($con) {
     // Set timezone to match your location (Philippines)
@@ -278,6 +299,9 @@ function initializeAdminPanel($con) {
 
     // Get dashboard statistics using the function
     $dashboardStats = getDashboardStats($con);
+    
+    // Get comprehensive activity data
+    $activityData = getAdminPanelActivityData($con);
 
     // Extract variables from the stats array
     $totalAppointments = $dashboardStats['totalAppointments'];
@@ -293,6 +317,12 @@ function initializeAdminPanel($con) {
     $dailyChartData = $dashboardStats['dailyChartData'];
     $weeklyChartData = $dashboardStats['weeklyChartData'];
     $statusChartData = $dashboardStats['statusChartData'];
+    
+    // Extract activity data
+    $activityStats = $activityData['activityStats'];
+    $adminActivity = $activityData['adminActivity'];
+    $frontdeskActivity = $activityData['frontdeskActivity'];
+    $todayActivity = $activityData['todayActivity'];
 
     // Return all the initialized data
     return [
@@ -310,7 +340,11 @@ function initializeAdminPanel($con) {
         'weeklyStats' => $weeklyStats,
         'dailyChartData' => $dailyChartData,
         'weeklyChartData' => $weeklyChartData,
-        'statusChartData' => $statusChartData
+        'statusChartData' => $statusChartData,
+        'activityStats' => $activityStats,
+        'adminActivity' => $adminActivity,
+        'frontdeskActivity' => $frontdeskActivity,
+        'todayActivity' => $todayActivity
     ];
 }
 ?>

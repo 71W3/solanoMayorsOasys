@@ -590,4 +590,178 @@ function sendAppointmentApprovedEmail($user_email, $user_name, $appointment_date
         ];
     }
 }
+
+/**
+ * Send appointment rescheduled email using PHPMailer
+ * @param string $user_email User's email address
+ * @param string $user_name User's full name
+ * @param string $old_date Previous appointment date
+ * @param string $old_time Previous appointment time
+ * @param string $new_date New appointment date
+ * @param string $new_time New appointment time
+ * @param string $purpose Purpose of visit
+ * @param string $admin_message Additional message from admin
+ * @return array Array with success status and message
+ */
+function sendAppointmentRescheduledEmail($user_email, $user_name, $old_date, $old_time, $new_date, $new_time, $purpose, $admin_message = '') {
+    // Email subject
+    $subject = "Appointment Rescheduled - Solano Mayor's Office";
+    
+    // Format the appointment dates for display
+    $formatted_old_date = date('l, F j, Y', strtotime($old_date));
+    $formatted_old_time = date('g:i A', strtotime($old_time));
+    $formatted_new_date = date('l, F j, Y', strtotime($new_date));
+    $formatted_new_time = date('g:i A', strtotime($new_time));
+    
+    // Email body
+    $message = "
+    <html>
+    <head>
+        <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #0055a4; color: white; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .reschedule-notice { background: #fff3cd; color: #856404; padding: 15px; margin: 15px 0; border-left: 4px solid #ffc107; border-radius: 5px; }
+            .appointment-details { background: white; padding: 15px; margin: 15px 0; border-left: 4px solid #17a2b8; }
+            .footer { background: #f0f0f0; padding: 15px; text-align: center; font-size: 12px; color: #666; }
+            .status-badge { background: #17a2b8; color: white; padding: 5px 10px; border-radius: 15px; font-weight: bold; }
+            .contact-info { background: #e8f5e8; padding: 15px; margin: 15px 0; border-radius: 5px; }
+            .old-appointment { background: #ffe6e6; padding: 10px; margin: 10px 0; border-left: 4px solid #dc3545; }
+            .new-appointment { background: #e6ffe6; padding: 10px; margin: 10px 0; border-left: 4px solid #28a745; }
+        </style>
+    </head>
+    <body>
+        <div class='container'>
+            <div class='header'>
+                <h2>Solano Mayor's Office</h2>
+                <p>Online Appointment System</p>
+            </div>
+            
+            <div class='content'>
+                <h3>Dear " . htmlspecialchars($user_name) . ",</h3>
+                
+                <div class='reschedule-notice'>
+                    <h4>🔄 Appointment Rescheduled</h4>
+                    <p>Your appointment has been rescheduled. Please note the new date and time below.</p>
+                </div>
+                
+                <div class='old-appointment'>
+                    <h4>Previous Appointment:</h4>
+                    <p><strong>Date:</strong> " . $formatted_old_date . "</p>
+                    <p><strong>Time:</strong> " . $formatted_old_time . "</p>
+                    <p><strong>Purpose:</strong> " . htmlspecialchars($purpose) . "</p>
+                </div>
+                
+                <div class='new-appointment'>
+                    <h4>New Appointment:</h4>
+                    <p><strong>Date:</strong> " . $formatted_new_date . "</p>
+                    <p><strong>Time:</strong> " . $formatted_new_time . "</p>
+                    <p><strong>Purpose:</strong> " . htmlspecialchars($purpose) . "</p>
+                    <p><strong>Status:</strong> <span class='status-badge'>RESCHEDULED</span></p>
+                </div>";
+    
+    if (!empty($admin_message)) {
+        $message .= "
+                <div class='admin-message'>
+                    <h4>📝 Message from our staff:</h4>
+                    <p>" . nl2br(htmlspecialchars($admin_message)) . "</p>
+                </div>";
+    }
+    
+    $message .= "
+                <div class='instructions'>
+                    <h4>🔔 What to do next:</h4>
+                    <ul>
+                        <li>Update your calendar with the new appointment date and time</li>
+                        <li>Cancel any previous arrangements for the old date</li>
+                        <li>Prepare any necessary documents for your appointment</li>
+                        <li>Plan to arrive 10 minutes before your new scheduled time</li>
+                    </ul>
+                </div>
+                
+                <div class='important-notes'>
+                    <h4>⚠️ Important Reminders:</h4>
+                    <ul>
+                        <li><strong>Arrive on Time:</strong> Please be at our office 10 minutes before your scheduled appointment</li>
+                        <li><strong>Bring Valid ID:</strong> Government-issued identification is required</li>
+                        <li><strong>Required Documents:</strong> Bring any documents related to your appointment purpose</li>
+                        <li><strong>Dress Code:</strong> Please dress appropriately for a government office visit</li>
+                        <li><strong>Health Protocols:</strong> Follow any health and safety guidelines in place</li>
+                    </ul>
+                </div>
+                
+                <div class='appointment-details'>
+                    <h4>📍 Office Information:</h4>
+                    <p><strong>Address:</strong> Solano Mayor's Office<br>
+                    Municipal Hall, Solano, Nueva Vizcaya</p>
+                    <p><strong>Contact Information:</strong></p>
+                    <ul>
+                        <li><strong>Phone:</strong> (078) 123-4567</li>
+                        <li><strong>Email:</strong> info@solanomayor.gov.ph</li>
+                        <li><strong>Office Hours:</strong> Monday - Friday, 8:00 AM - 5:00 PM</li>
+                    </ul>
+                </div>
+                
+                <p>We apologize for any inconvenience this rescheduling may have caused. We look forward to serving you on your new appointment date.</p>
+                
+                <p>If you have any questions about your rescheduled appointment, please don't hesitate to contact us.</p>
+                
+                <p>Best regards,<br>
+                <strong>Solano Mayor's Office Team</strong><br>
+                <em>\"Serving our community with excellence\"</em></p>
+            </div>
+            
+            <div class='footer'>
+                <p>This is an automated notification email. Please save this email for your records.</p>
+                <p>&copy; 2025 Solano Mayor's Office. All rights reserved.</p>
+                <p style='color: #17a2b8; font-weight: bold;'>Your appointment has been rescheduled. Please note the new date and time.</p>
+            </div>
+        </div>
+    </body>
+    </html>";
+
+    try {
+        $mail = new PHPMailer(true);
+        $mail->isSMTP();
+        $mail->Host = getSMTPSettings()['host'];
+        $mail->SMTPAuth = true;
+        $mail->Username = getSMTPSettings()['username'];
+        $mail->Password = getSMTPSettings()['password'];
+        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port = getSMTPSettings()['port'];
+        
+        // SSL certificate verification settings for development
+        $mail->SMTPOptions = array(
+            'ssl' => array(
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+                'allow_self_signed' => true
+            )
+        );
+        
+        $mail->setFrom(getSMTPSettings()['from_email'], 'Solano Mayor\'s Office');
+        $mail->addAddress($user_email, $user_name);
+        $mail->addReplyTo('info@solanomayor.gov.ph', 'Solano Mayor\'s Office');
+        $mail->isHTML(true);
+        $mail->Subject = $subject;
+        $mail->Body = $message;
+        $mail->AltBody = strip_tags(str_replace(['<br>', '</p>', '</li>'], ["\n", "\n\n", "\n"], $message));
+        
+        $mail->send();
+        logEmailAttempt($user_email, $user_name, $subject, true, 'Reschedule email sent successfully');
+        
+        return [
+            'success' => true, 
+            'message' => 'Reschedule email sent successfully to ' . $user_email
+        ];
+        
+    } catch (Exception $e) {
+        logEmailAttempt($user_email, $user_name, $subject, false, $e->getMessage());
+        return [
+            'success' => false, 
+            'message' => 'Reschedule email could not be sent. Error: ' . $e->getMessage()
+        ];
+    }
+}
 ?> 

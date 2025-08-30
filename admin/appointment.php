@@ -3,6 +3,7 @@ session_start();
 include "connect.php";
 include "adminPanel_functions.php";
 
+
 // Initialize admin panel to get proper admin info
 $adminData = initializeAdminPanel($con);
 
@@ -10,7 +11,7 @@ $adminData = initializeAdminPanel($con);
 $admin_name = $adminData['admin_name'];
 $admin_role = $adminData['admin_role'];
 
-$_SESSION['admin_logged_in'] = true;
+// Session validation handled by adminPanel_functions.php
 
 
 // Handle Add Mayor's Appointment
@@ -106,6 +107,24 @@ if (isset($_POST['action']) && isset($_POST['appointment_id'])) {
                 $admin_message
             );
 
+            // Log activity for superadmin monitoring
+            $admin_id = $_SESSION['admin_id'] ?? $_SESSION['user_id'] ?? null;
+            $admin_name = $_SESSION['admin_name'] ?? $_SESSION['user_full_name'] ?? 'Unknown Admin';
+            $admin_role = $_SESSION['admin_role'] ?? $_SESSION['role'] ?? 'admin';
+            
+            if ($admin_id) {
+                include_once "activity_logger.php";
+                logAppointmentApproval(
+                    $con, 
+                    $admin_id, 
+                    $admin_name, 
+                    $admin_role, 
+                    $app_id, 
+                    $appointment['user_name'], 
+                    $appointment['purpose']
+                );
+            }
+
             if ($email_result['success']) {
                 $_SESSION['message'] = "Appointment #$app_id has been approved and confirmation email sent to " . $appointment['user_email'] . ".";
                 $_SESSION['message_type'] = "success";
@@ -146,6 +165,25 @@ if (isset($_POST['action']) && isset($_POST['appointment_id'])) {
                 $appointment['purpose'],
                 $decline_reason
             );
+
+            // Log activity for superadmin monitoring
+            $admin_id = $_SESSION['admin_id'] ?? $_SESSION['user_id'] ?? null;
+            $admin_name = $_SESSION['admin_name'] ?? $_SESSION['user_full_name'] ?? 'Unknown Admin';
+            $admin_role = $_SESSION['admin_role'] ?? $_SESSION['role'] ?? 'admin';
+            
+            if ($admin_id) {
+                include_once "activity_logger.php";
+                logAppointmentDecline(
+                    $con, 
+                    $admin_id, 
+                    $admin_name, 
+                    $admin_role, 
+                    $app_id, 
+                    $appointment['user_name'], 
+                    $appointment['purpose'], 
+                    $decline_reason
+                );
+            }
 
             if ($email_result['success']) {
                 $_SESSION['message'] = "Appointment #$app_id has been declined and notification email sent.";
@@ -200,6 +238,26 @@ if (isset($_POST['action']) && isset($_POST['appointment_id'])) {
                 $admin_message
             );
 
+            // Log activity for superadmin monitoring
+            $admin_id = $_SESSION['admin_id'] ?? $_SESSION['user_id'] ?? null;
+            $admin_name = $_SESSION['admin_name'] ?? $_SESSION['user_full_name'] ?? 'Unknown Admin';
+            $admin_role = $_SESSION['admin_role'] ?? $_SESSION['role'] ?? 'admin';
+            
+            if ($admin_id) {
+                include_once "activity_logger.php";
+                logAppointmentReschedule(
+                    $con, 
+                    $admin_id, 
+                    $admin_name, 
+                    $admin_role, 
+                    $app_id, 
+                    $appointment['user_name'], 
+                    $appointment['purpose'], 
+                    $old_date, 
+                    $new_date
+                );
+            }
+
             if ($email_result['success']) {
                 $_SESSION['message'] = "Appointment #$app_id rescheduled successfully and email notification sent to " . $appointment['user_email'] . ". 🗓️";
                 $_SESSION['message_type'] = "success";
@@ -210,7 +268,7 @@ if (isset($_POST['action']) && isset($_POST['appointment_id'])) {
             
         } elseif ($action == 'complete') {
             // Get user_id for this appointment
-            $stmt = $con->prepare("SELECT user_id FROM appointments WHERE id = ?");
+            $stmt = $con->prepare("SELECT user_id, purpose FROM appointments WHERE id = ?");
             $stmt->bind_param("i", $app_id);
             $stmt->execute();
             $result = $stmt->get_result();
@@ -227,6 +285,24 @@ if (isset($_POST['action']) && isset($_POST['appointment_id'])) {
             $stmt = $con->prepare("INSERT INTO message (user_id, message, date, time) VALUES (?, ?, CURDATE(), CURTIME())");
             $stmt->bind_param("is", $user_id, $message);
             $stmt->execute();
+
+            // Log activity for superadmin monitoring
+            $admin_id = $_SESSION['admin_id'] ?? $_SESSION['user_id'] ?? null;
+            $admin_name = $_SESSION['admin_name'] ?? $_SESSION['user_full_name'] ?? 'Unknown Admin';
+            $admin_role = $_SESSION['admin_role'] ?? $_SESSION['role'] ?? 'admin';
+            
+            if ($admin_id) {
+                include_once "activity_logger.php";
+                logAppointmentCompletion(
+                    $con, 
+                    $admin_id, 
+                    $admin_name, 
+                    $admin_role, 
+                    $app_id, 
+                    'Resident', 
+                    $appointment['purpose']
+                );
+            }
 
             $_SESSION['message'] = "Appointment #$app_id marked as completed and user notified. ✅";
             $_SESSION['message_type'] = "success";
@@ -894,7 +970,7 @@ $approved_appointments = $stmt->get_result();
                     <i class="bi bi-person-plus"></i>
                     Admin Registration
                 </a>
-                <a href="logout.php">
+                <a href="logoutAdmin.php">
                     <i class="bi bi-box-arrow-right"></i>
                     Logout
                 </a>

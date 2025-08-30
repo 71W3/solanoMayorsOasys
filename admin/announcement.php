@@ -588,7 +588,7 @@ $announcements = get_all_announcements();
                     <i class="bi bi-person-plus"></i>
                     Admin Registration
                 </a>
-                <a href="logout.php">
+                <a href="logoutAdmin.php">
                     <i class="bi bi-box-arrow-right"></i>
                     Logout
                 </a>

@@ -237,7 +237,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register'])) {
                     <i class="bi bi-person-plus"></i>
                     Admin Registration
                 </a>
-                <a href="logout.php" class="text-danger">
+                <a href="logoutAdmin.php" class="text-danger">
                     <i class="bi bi-box-arrow-right"></i>
                     Logout
                 </a>

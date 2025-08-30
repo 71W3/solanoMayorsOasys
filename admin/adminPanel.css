@@ -702,3 +702,124 @@ body {
     font-size: 0.875rem;
     margin: 0;
 }
+
+/* Activity Log Styles */
+.activity-log-section {
+    background: white;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 2rem;
+}
+
+.activity-log-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.activity-log-filters {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.activity-log-filters .btn {
+    font-size: 0.875rem;
+    padding: 0.5rem 1rem;
+}
+
+.activity-log-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.activity-log-stat {
+    text-align: center;
+    padding: 1.5rem;
+    background: var(--lighter);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+
+.activity-log-stat h4 {
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+
+.activity-log-stat p {
+    color: var(--text-secondary);
+    margin: 0;
+    font-size: 0.875rem;
+}
+
+.activity-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.activity-table th {
+    background: var(--lighter);
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-primary);
+    border-bottom: 2px solid var(--border);
+}
+
+.activity-table td {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+}
+
+.activity-table tr:hover {
+    background: var(--lighter);
+}
+
+.activity-badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 12px;
+    font-weight: 500;
+}
+
+.activity-badge.admin {
+    background: rgba(37, 99, 235, 0.1);
+    color: var(--accent);
+}
+
+.activity-badge.frontdesk {
+    background: rgba(5, 150, 105, 0.1);
+    color: var(--success);
+}
+
+.activity-badge.mayor {
+    background: rgba(217, 119, 6, 0.1);
+    color: var(--warning);
+}
+
+.activity-badge.superadmin {
+    background: rgba(220, 38, 38, 0.1);
+    color: var(--danger);
+}
+
+.activity-description {
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.activity-time {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.activity-user {
+    font-weight: 600;
+    color: var(--text-primary);
+}
