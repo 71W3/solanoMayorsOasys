@@ -144,13 +144,8 @@ if (isset($_POST['action']) && isset($_POST['appointment_id'])) {
             $appointment_result = $con->query($appointment_query);
             $appointment = $appointment_result->fetch_assoc();
 
-            // Update appointment status to 'declined'
-            $stmt = $con->prepare("UPDATE appointments SET status_enum = 'declined', updated_at = NOW() WHERE id = ?");
-            $stmt->bind_param("i", $app_id);
-            $stmt->execute();
-
-            // Insert into decline_table
-            $stmt = $con->prepare("INSERT INTO decline_table (reason, app_id) VALUES (?, ?)");
+            // Update appointment status to 'declined' and set declineReason
+            $stmt = $con->prepare("UPDATE appointments SET status_enum = 'declined', declineReason = ?, updated_at = NOW() WHERE id = ?");
             $stmt->bind_param("si", $decline_reason, $app_id);
             $stmt->execute();
 
@@ -218,6 +213,11 @@ if (isset($_POST['action']) && isset($_POST['appointment_id'])) {
             $stmt->bind_param("ssi", $new_date, $new_time, $app_id);
             $stmt->execute();
             
+            // Update schedule table with reschedule reason
+            $stmt = $con->prepare("UPDATE schedule SET reSchedReason = ?, updated_at = NOW() WHERE app_id = ?");
+            $stmt->bind_param("si", $admin_message, $app_id);
+            $stmt->execute();
+            
             // Insert into message table
             $message = "Your appointment #$app_id has been rescheduled to $new_date at $new_time. Admin note: $admin_message";
             $stmt = $con->prepare("INSERT INTO message (user_id, message, date, time) VALUES (?, ?, CURDATE(), CURTIME())");
@@ -267,12 +267,13 @@ if (isset($_POST['action']) && isset($_POST['appointment_id'])) {
             }
             
         } elseif ($action == 'complete') {
-            // Get user_id for this appointment
-            $stmt = $con->prepare("SELECT user_id, purpose FROM appointments WHERE id = ?");
-            $stmt->bind_param("i", $app_id);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            $appointment = $result->fetch_assoc();
+            // Get appointment details for email
+            $appointment_query = "SELECT a.*, u.name as user_name, u.email as user_email 
+                                 FROM appointments a 
+                                 JOIN users u ON a.user_id = u.id 
+                                 WHERE a.id = $app_id";
+            $appointment_result = $con->query($appointment_query);
+            $appointment = $appointment_result->fetch_assoc();
             $user_id = $appointment['user_id'];
 
             // Update appointment status to 'completed'
@@ -285,6 +286,18 @@ if (isset($_POST['action']) && isset($_POST['appointment_id'])) {
             $stmt = $con->prepare("INSERT INTO message (user_id, message, date, time) VALUES (?, ?, CURDATE(), CURTIME())");
             $stmt->bind_param("is", $user_id, $message);
             $stmt->execute();
+
+            // Send completion email
+            include_once "../user/email_helper_phpmailer.php";
+            
+            $email_result = sendAppointmentCompletedEmail(
+                $appointment['user_email'],
+                $appointment['user_name'],
+                $appointment['date'],
+                $appointment['time'],
+                $appointment['purpose'],
+                $app_id
+            );
 
             // Log activity for superadmin monitoring
             $admin_id = $_SESSION['admin_id'] ?? $_SESSION['user_id'] ?? null;
@@ -304,8 +317,13 @@ if (isset($_POST['action']) && isset($_POST['appointment_id'])) {
                 );
             }
 
-            $_SESSION['message'] = "Appointment #$app_id marked as completed and user notified. ✅";
-            $_SESSION['message_type'] = "success";
+            if ($email_result['success']) {
+                $_SESSION['message'] = "Appointment #$app_id marked as completed and confirmation email sent to " . $appointment['user_email'] . ". ✅";
+                $_SESSION['message_type'] = "success";
+            } else {
+                $_SESSION['message'] = "Appointment #$app_id marked as completed, but email notification failed to send.";
+                $_SESSION['message_type'] = "warning";
+            }
         }
         
         $con->commit();

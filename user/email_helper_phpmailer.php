@@ -764,4 +764,115 @@ function sendAppointmentRescheduledEmail($user_email, $user_name, $old_date, $ol
         ];
     }
 }
+
+/**
+ * Send appointment completion email using PHPMailer
+ * @param string $user_email User's email address
+ * @param string $user_name User's full name
+ * @param string $appointment_date Appointment date
+ * @param string $appointment_time Appointment time
+ * @param string $purpose Purpose of visit
+ * @param int $appointment_id Appointment ID
+ * @return array Array with success status and message
+ */
+function sendAppointmentCompletedEmail($user_email, $user_name, $appointment_date, $appointment_time, $purpose, $appointment_id) {
+    // Email subject
+    $subject = "Appointment Completed - Solano Mayor's Office";
+    
+    // Format date/time
+    $formatted_date = date('F j, Y', strtotime($appointment_date));
+    $formatted_time = date('g:i A', strtotime($appointment_time));
+    
+    // Email body
+    $message = "
+    <html>
+    <head>
+        <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #28a745; color: white; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .appointment-details { background: white; padding: 15px; margin: 15px 0; border-left: 4px solid #28a745; }
+            .footer { background: #f0f0f0; padding: 15px; text-align: center; font-size: 12px; color: #666; }
+            .status-badge { background: #28a745; color: white; padding: 5px 10px; border-radius: 15px; font-weight: bold; }
+            .contact-info { background: #e8f5e8; padding: 15px; margin: 15px 0; border-radius: 5px; }
+            .completion-message { background: #d4edda; padding: 15px; margin: 15px 0; border-radius: 5px; border-left: 4px solid #28a745; }
+        </style>
+    </head>
+    <body>
+        <div class='container'>
+            <div class='header'>
+                <h1>🏛️ Solano Mayor's Office</h1>
+                <h2>Appointment Completed</h2>
+            </div>
+            
+            <div class='content'>
+                <p>Dear <strong>$user_name</strong>,</p>
+                
+                <div class='completion-message'>
+                    <h3>✅ Your appointment has been completed!</h3>
+                    <p>We are pleased to inform you that your appointment with the Solano Mayor's Office has been successfully completed.</p>
+                </div>
+                
+                <div class='appointment-details'>
+                    <h3>📋 Appointment Details</h3>
+                    <p><strong>Appointment ID:</strong> #$appointment_id</p>
+                    <p><strong>Date:</strong> $formatted_date</p>
+                    <p><strong>Time:</strong> $formatted_time</p>
+                    <p><strong>Purpose:</strong> $purpose</p>
+                    <p><strong>Status:</strong> <span class='status-badge'>COMPLETED</span></p>
+                </div>
+                
+                <div class='contact-info'>
+                    <h4>📞 Contact Information</h4>
+                    <p>If you have any questions or need further assistance, please don't hesitate to contact us:</p>
+                    <ul>
+                        <li><strong>Phone:</strong> (078) 123-4567</li>
+                        <li><strong>Email:</strong> info@solanomayor.gov.ph</li>
+                        <li><strong>Office Hours:</strong> Monday - Friday, 8:00 AM - 5:00 PM</li>
+                    </ul>
+                </div>
+                
+                <p>Thank you for choosing the Solano Mayor's Office for your appointment needs. We look forward to serving you again in the future.</p>
+                
+                <p>Best regards,<br>
+                <strong>Solano Mayor's Office</strong><br>
+                Municipality of Solano</p>
+            </div>
+            
+            <div class='footer'>
+                <p>This is an automated message. Please do not reply to this email.</p>
+                <p>© " . date('Y') . " Municipality of Solano. All rights reserved.</p>
+            </div>
+        </div>
+    </body>
+    </html>";
+    
+    try {
+        $mail = new PHPMailer(true);
+        $mail->isSMTP();
+        $mail->Host = getSMTPSettings()['host'];
+        $mail->SMTPAuth = true;
+        $mail->Username = getSMTPSettings()['username'];
+        $mail->Password = getSMTPSettings()['password'];
+        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port = getSMTPSettings()['port'];
+        
+        $mail->setFrom(getSMTPSettings()['from_email'], 'Solano Mayor\'s Office');
+        $mail->addAddress($user_email, $user_name);
+        $mail->isHTML(true);
+        $mail->Subject = $subject;
+        $mail->Body = $message;
+        $mail->AltBody = strip_tags($message);
+        
+        $mail->send();
+        logEmailAttempt($user_email, $user_name, $subject, true, 'Completion email sent');
+        
+        return ['success' => true, 'message' => 'Email sent'];
+        
+    } catch (Exception $e) {
+        logEmailAttempt($user_email, $user_name, $subject, false, $e->getMessage());
+        return ['success' => false, 'message' => 'Email could not be sent. Error: ' . $e->getMessage()];
+    }
+}
 ?> 
