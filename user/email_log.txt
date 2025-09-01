@@ -94,3 +94,9 @@ error:0A000086:SSL routines::certificate verify failed
 2025-08-30 17:02:14 | SUCCESS | To: sungagerald600@gmail.com | User: lad | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
 2025-08-30 17:04:10 | SUCCESS | To: sungagerald600@gmail.com | User: lad | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
 2025-08-30 17:12:42 | SUCCESS | To: sungagerald600@gmail.com | User: lad | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
+2025-09-01 15:45:21 | SUCCESS | To: lads@gmail.com | User: lad | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
+2025-09-01 15:46:40 | SUCCESS | To: sungagerald600@gmail.com | User: lad | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
+2025-09-01 15:54:01 | SUCCESS | To: emilpaaladin94@gmail.com | User: mil | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
+2025-09-01 15:54:46 | SUCCESS | To: emilpaaladin94@gmail.com | User: mil | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
+2025-09-01 15:55:24 | SUCCESS | To: sungagerald600@gmail.com | User: lad | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully
+2025-09-01 15:57:17 | SUCCESS | To: sungagerald600@gmail.com | User: lad | Subject: Appointment Request Received - Solano Mayor's Office | Message: Email sent successfully

@@ -83,10 +83,10 @@ if ($user_id) {
                 a.updated_at,
                 a.other_details,
                 a.attachments,
-                d.reason AS decline_reason  
+                a.declineReason AS decline_reason  
             FROM appointments a
             LEFT JOIN services s ON a.service_id = s.id 
-            LEFT JOIN decline_table d ON a.id = d.app_id
+            -- declineReason is now in appointments table
             WHERE a.user_id = ?";
 
     $stmt = $conn->prepare($sql);

@@ -156,13 +156,8 @@ function handleAppointmentCancellation($con, $app_id, $additional_data) {
     $appointment_result = $con->query($appointment_query);
     $appointment = $appointment_result->fetch_assoc();
 
-    // Update appointment status to 'declined'
-    $stmt = $con->prepare("UPDATE appointments SET status_enum = 'declined', updated_at = NOW() WHERE id = ?");
-    $stmt->bind_param("i", $app_id);
-    $stmt->execute();
-
-    // Insert into decline_table
-    $stmt = $con->prepare("INSERT INTO decline_table (reason, app_id) VALUES (?, ?)");
+    // Update appointment status to 'declined' and set declineReason
+    $stmt = $con->prepare("UPDATE appointments SET status_enum = 'declined', declineReason = ?, updated_at = NOW() WHERE id = ?");
     $stmt->bind_param("si", $decline_reason, $app_id);
     $stmt->execute();
 
@@ -196,12 +191,13 @@ function handleAppointmentCancellation($con, $app_id, $additional_data) {
 
 // Function to handle appointment completion
 function handleAppointmentCompletion($con, $app_id, $admin_id = null, $admin_name = null, $admin_role = null) {
-    // Get appointment details for logging
-    $stmt = $con->prepare("SELECT purpose FROM appointments WHERE id = ?");
-    $stmt->bind_param("i", $app_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $appointment = $result->fetch_assoc();
+    // Get appointment details for email and logging
+    $appointment_query = "SELECT a.*, u.name as user_name, u.email as user_email 
+                         FROM appointments a 
+                         JOIN users u ON a.user_id = u.id 
+                         WHERE a.id = $app_id";
+    $appointment_result = $con->query($appointment_query);
+    $appointment = $appointment_result->fetch_assoc();
     
     // Update appointment status to 'completed'
     $stmt = $con->prepare("UPDATE appointments SET status_enum = 'completed', updated_at = NOW() WHERE id = ?");
@@ -212,6 +208,18 @@ function handleAppointmentCompletion($con, $app_id, $admin_id = null, $admin_nam
     $stmt = $con->prepare("DELETE FROM schedule WHERE app_id = ?");
     $stmt->bind_param("i", $app_id);
     $stmt->execute();
+
+    // Send completion email
+    include_once "../user/email_helper_phpmailer.php";
+    
+    $email_result = sendAppointmentCompletedEmail(
+        $appointment['user_email'],
+        $appointment['user_name'],
+        $appointment['date'],
+        $appointment['time'],
+        $appointment['purpose'],
+        $app_id
+    );
 
     // Log activity for superadmin monitoring if admin info is provided
     if ($admin_id && $admin_name && $admin_role) {
@@ -229,10 +237,18 @@ function handleAppointmentCompletion($con, $app_id, $admin_id = null, $admin_nam
 
     $con->commit();
     
-    return [
-        'success' => true, 
-        'message' => "Appointment #$app_id has been marked as completed."
-    ];
+    if ($email_result['success']) {
+        return [
+            'success' => true, 
+            'message' => "Appointment #$app_id has been marked as completed and confirmation email sent to " . $appointment['user_email'] . "."
+        ];
+    } else {
+        return [
+            'success' => true, 
+            'message' => "Appointment #$app_id has been marked as completed, but email notification failed to send.",
+            'warning' => true
+        ];
+    }
 }
 
 // Function to handle appointment reschedule
@@ -263,9 +279,9 @@ function handleAppointmentReschedule($con, $app_id, $additional_data) {
     $stmt->bind_param("ssi", $new_date, $new_time, $app_id);
     $stmt->execute();
 
-    // Remove from schedule table (since it's now pending again)
-    $stmt = $con->prepare("DELETE FROM schedule WHERE app_id = ?");
-    $stmt->bind_param("i", $app_id);
+    // Update schedule table with reschedule reason (if schedule exists)
+    $stmt = $con->prepare("UPDATE schedule SET reSchedReason = ?, updated_at = NOW() WHERE app_id = ?");
+    $stmt->bind_param("si", $reschedule_reason, $app_id);
     $stmt->execute();
 
     // Send reschedule email
@@ -334,10 +350,9 @@ function getCompletedAppointments($con) {
 
 // Function to get declined appointments
 function getDeclinedAppointments($con) {
-    $query = "SELECT a.*, u.name as resident_name, u.email as resident_email, dt.reason as decline_reason
+    $query = "SELECT a.*, u.name as resident_name, u.email as resident_email, a.declineReason as decline_reason
               FROM appointments a 
               JOIN users u ON a.user_id = u.id 
-              LEFT JOIN decline_table dt ON a.id = dt.app_id
               WHERE a.status_enum = 'declined' 
               ORDER BY a.date ASC, a.time ASC";
     
